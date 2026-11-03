@@ -539,7 +539,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         sysRow.font = NSFont.systemFont(ofSize: 11)
         sysRow.textColor = .secondaryLabelColor
 
-        let shotDefaultText = "Look at this screenshot. Find any programming problem, error, or bug and explain how to fix it."
+        let shotDefaultText = "Solve what is on my screen. If it is a coding question, follow the coding steps. If it shows an error or bug, give the cause and the fix. If it is a question, answer it."
         let shotLabel = NSTextField(labelWithString: "Screenshot prompt:")
         shotLabel.font = NSFont.systemFont(ofSize: 11)
         let shotDefaultBtn = NSButton(title: "Default", target: nil, action: nil)

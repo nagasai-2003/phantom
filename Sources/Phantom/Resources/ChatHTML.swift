@@ -687,7 +687,7 @@ function sendText(text, withScreenshot) {
 function send() {
   const inp = document.getElementById('inp');
   let text = inp.value.trim();
-  if (!text && hasScreenshot) text = screenshotPrompt || 'Look at this screenshot. Find any programming problem, error, or bug and explain how to fix it.';
+  if (!text && hasScreenshot) text = screenshotPrompt || 'Solve what is on my screen. If it is a coding question, follow the coding steps. If it shows an error or bug, give the cause and the fix. If it is a question, answer it.';
   if (!text) return;
   inp.value = ''; inp.style.height = 'auto';
   listenHeard = false;

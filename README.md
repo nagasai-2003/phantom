@@ -224,7 +224,7 @@ Click **◈ → Interview profile…**, or the **profile** badge in the chat hea
 
 - **Resume:** choose a PDF or Word file (.pdf, .docx, .doc, .rtf, .txt), or paste the text. The extracted text is shown so you can fix it. Scanned PDFs have no text; paste the text instead.
 - **Job description:** paste it.
-- **How Phantom should answer:** the system prompt. **Use recommended** fills in an interview-copilot prompt: a bold one-line answer, then 2–4 bullets, STAR for behavioural questions, code plus complexity for coding, and only facts from your resume.
+- **How Phantom should answer:** the system prompt. **Use recommended** fills in an interview-copilot prompt: a bold one-line answer, then 2–4 bullets, STAR for behavioural questions, a think-aloud for coding (restate, brute force, key insight, plan, code, walk-through, complexity), project walk-throughs (what it is, your role, how it works, challenge, result, lessons), step-by-step scenario answers, and only facts from your resume. Details your resume doesn't state are marked "(suggested)" — add a few lines per project (role, stack, challenge, lessons) to the Resume box so answers use real facts.
 - Save with **⌘S**. The profile is sent with every message as the system prompt, is stored only in `~/Library/Application Support/Phantom/profile.json`, and goes only to your AI provider.
 - Up to 6,000 characters of resume and 4,000 of job description are sent. The window shows the token cost per message, because free tiers limit tokens per minute (Groq: 8,000 on gpt-oss-20b).
 
