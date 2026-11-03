@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "Ghostbar",
+    name: "Phantom",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "Ghostbar",
-            path: "Sources/Ghostbar",
+            name: "Phantom",
+            path: "Sources/Phantom",
             linkerSettings: [.linkedFramework("Carbon")]
         )
     ]

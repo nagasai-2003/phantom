@@ -1,8 +1,7 @@
 .build/
-Ghostbar.app/*
+Phantom.app/*
 *.dmg
-Ghostbar.icns
-Ghostbar.iconset/
+Phantom.iconset/
 .env
 set_icon.sh
 .DS_Store

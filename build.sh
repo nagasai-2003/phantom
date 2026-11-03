@@ -5,21 +5,21 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
 VERSION="1.0.2"
-APP="Ghostbar.app"
-DMG="Ghostbar-v${VERSION}.dmg"
+APP="Phantom.app"
+DMG="Phantom-v${VERSION}.dmg"
 
-echo "→ Building Ghostbar..."
+echo "→ Building Phantom..."
 swift build -c release 2>&1
 
-BINARY=".build/release/Ghostbar"
+BINARY=".build/release/Phantom"
 
 echo "→ Creating .app bundle..."
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
-cp "$BINARY" "$APP/Contents/MacOS/Ghostbar"
-[ -f "$DIR/Ghostbar.icns" ] && cp "$DIR/Ghostbar.icns" "$APP/Contents/Resources/Ghostbar.icns"
+cp "$BINARY" "$APP/Contents/MacOS/Phantom"
+[ -f "$DIR/Phantom.icns" ] && cp "$DIR/Phantom.icns" "$APP/Contents/Resources/Phantom.icns"
 
 cat > "$APP/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -27,16 +27,16 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleExecutable</key><string>Ghostbar</string>
-  <key>CFBundleIdentifier</key><string>com.local.ghostbar</string>
-  <key>CFBundleName</key><string>Ghostbar</string>
+  <key>CFBundleExecutable</key><string>Phantom</string>
+  <key>CFBundleIdentifier</key><string>com.local.phantom</string>
+  <key>CFBundleName</key><string>Phantom</string>
   <key>CFBundleVersion</key><string>1.0.0</string>
   <key>CFBundleShortVersionString</key><string>1.0.0</string>
-  <key>CFBundleIconFile</key><string>Ghostbar</string>
+  <key>CFBundleIconFile</key><string>Phantom</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSMicrophoneUsageDescription</key><string>Ghostbar needs the microphone to transcribe audio with Whisper.</string>
-  <key>NSScreenCaptureUsageDescription</key><string>Ghostbar needs screen access to capture context for AI responses.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Phantom needs the microphone to transcribe audio with Whisper.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>Phantom needs screen access to capture context for AI responses.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
     <key>NSAllowsArbitraryLoads</key><true/>
@@ -58,29 +58,29 @@ cat > /tmp/entitlements.plist << 'ENT'
 ENT
 
 codesign --force --deep --sign - \
-  --identifier "com.local.ghostbar" \
+  --identifier "com.local.phantom" \
   --entitlements /tmp/entitlements.plist \
   "$APP"
 
 echo "→ Resetting TCC permissions (signature changed)..."
-tccutil reset ScreenCapture com.local.ghostbar 2>/dev/null || true
-tccutil reset Microphone    com.local.ghostbar 2>/dev/null || true
+tccutil reset ScreenCapture com.local.phantom 2>/dev/null || true
+tccutil reset Microphone    com.local.phantom 2>/dev/null || true
 
 echo "→ Creating DMG..."
-STAGING="$(mktemp -d)/Ghostbar"
+STAGING="$(mktemp -d)/Phantom"
 mkdir -p "$STAGING"
 cp -r "$APP" "$STAGING/"
 ln -s /Applications "$STAGING/Applications"
 
 # Create writable DMG, mount, set volume icon, unmount, convert
-TMP_DMG="$DIR/tmp_ghostbar.dmg"
+TMP_DMG="$DIR/tmp_phantom.dmg"
 rm -f "$TMP_DMG" "$DMG"
-hdiutil create -volname "Ghostbar" -srcfolder "$STAGING" -ov -format UDRW "$TMP_DMG" > /dev/null
+hdiutil create -volname "Phantom" -srcfolder "$STAGING" -ov -format UDRW "$TMP_DMG" > /dev/null
 
 MOUNT_DIR="$(mktemp -d)"
 hdiutil attach "$TMP_DMG" -mountpoint "$MOUNT_DIR" -nobrowse -quiet
 
-[ -f "$DIR/Ghostbar.icns" ] && cp "$DIR/Ghostbar.icns" "$MOUNT_DIR/.VolumeIcon.icns"
+[ -f "$DIR/Phantom.icns" ] && cp "$DIR/Phantom.icns" "$MOUNT_DIR/.VolumeIcon.icns"
 
 # Set custom icon flag on the volume
 python3 - "$MOUNT_DIR" << 'PYEOF'
@@ -109,7 +109,7 @@ echo ""
 echo "→ To run: "   
 echo "    open $DIR/$APP"
 echo "→ To install: "
-echo "    open $DIR/$DMG  (drag Ghostbar to Applications)"
+echo "    open $DIR/$DMG  (drag Phantom to Applications)"
 echo ""
 echo "→ To release on GitHub:"
 echo "  git tag v${VERSION} && git push origin main --tags"

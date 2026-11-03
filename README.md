@@ -4,11 +4,13 @@
 <img src="https://img.shields.io/badge/Swift-5.9-orange?style=flat-square&logo=swift&logoColor=white" />
 <img src="https://img.shields.io/badge/No_Electron-✓-green?style=flat-square" />
 <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" />
-<img src="https://img.shields.io/github/stars/rbc33/Ghostbar?style=flat-square&color=yellow" />
+<img src="https://img.shields.io/github/stars/nagasai-2003/Phantom?style=flat-square&color=yellow" />
 
 <br><br>
 
-# ⬡ Ghostbar
+<img src="logo.png" width="128" alt="Phantom logo" />
+
+# Phantom
 
 ### The only native Swift macOS Cluely alternative.
 
@@ -17,19 +19,19 @@
 
 <br>
 
-[**Download DMG**](https://github.com/rbc33/Ghostbar/releases) · [**Homebrew**](#install-via-homebrew) · [**Build from source**](#install) · [**Report bug**](https://github.com/rbc33/Ghostbar/issues)
+[**Download DMG**](https://github.com/nagasai-2003/Phantom/releases) · [**Build from source**](#install) · [**Report bug**](https://github.com/nagasai-2003/Phantom/issues)
 
 </div>
 
 ---
 
-## Why Ghostbar over Pluely, Natively, or Vysper?
+## Why Phantom over Pluely, Natively, or Vysper?
 
 Every other Cluely alternative is built on **Electron or Tauri** — that means a bundled Chromium browser, 200–500MB of RAM just to open, and slow startup times.
 
-Ghostbar is written in **native Swift using AppKit**. It starts instantly, uses minimal memory, and feels like a real macOS app — because it is one.
+Phantom is written in **native Swift using AppKit**. It starts instantly, uses minimal memory, and feels like a real macOS app — because it is one.
 
-| | Ghostbar | Pluely | Natively | Vysper |
+| | Phantom | Pluely | Natively | Vysper |
 |---|---|---|---|---|
 | **Tech** | ✅ Native Swift | Tauri/Rust | Electron | Electron |
 | **macOS only** | ✅ Purpose-built | ❌ Cross-platform | ❌ Cross-platform | ❌ Cross-platform |
@@ -43,7 +45,7 @@ Ghostbar is written in **native Swift using AppKit**. It starts instantly, uses 
 
 ---
 
-## What is Ghostbar?
+## What is Phantom?
 
 A macOS menu bar AI client that is **completely invisible to screen capture**.
 
@@ -61,7 +63,7 @@ No hacks. No injection. A public, documented Apple API that removes the window f
 ## Use cases
 
 **Technical interviews**  
-LeetCode, HackerRank, take-home assessments. Ask for hints, complexity analysis, edge cases — all while sharing your screen. The interviewer sees your code. They don't see Ghostbar.
+LeetCode, HackerRank, take-home assessments. Ask for hints, complexity analysis, edge cases — all while sharing your screen. The interviewer sees your code. They don't see Phantom.
 
 **Live coding demos**  
 Presenting to a client or team? Use AI to look up syntax, generate boilerplate, or sanity-check logic in real time. Nobody notices.
@@ -95,7 +97,7 @@ Pair with Ollama or LM Studio for fully on-device inference. Nothing leaves your
 | | |
 |---|---|
 | 🫥 **Invisible by default** | Hidden from every screen capture tool on macOS |
-| 🍎 **Menu bar only** | No Dock icon. No trace. Appears as **⬡** |
+| 🍎 **Menu bar only** | No Dock icon. No trace. Appears as **◈** |
 | 🤖 **Multi-backend** | Ollama, OpenAI, Claude, OpenRouter, NVIDIA NIM, LM Studio, llama.cpp |
 | 🎙 **Voice input** | On-device transcription via whisper-cpp |
 | 📸 **Screenshot analysis** | Capture your screen → attach to message. Model sees it, recorder doesn't. |
@@ -104,42 +106,26 @@ Pair with Ollama or LM Studio for fully on-device inference. Nothing leaves your
 
 ---
 
-## Install via Homebrew
-
-```bash
-brew tap rbc33/ghostbar
-brew install --cask ghostbar
-```
-
-> **Note:** Ghostbar is not notarized. On first launch, right-click → Open → Open anyway.
-
----
-
 ## Install
 
 **Option A — DMG (fastest)**
 
-Download [`Ghostbar-v1.0.2.dmg`](https://github.com/rbc33/Ghostbar/releases), drag to Applications, open.
+Download [`Phantom-v1.0.2.dmg`](https://github.com/nagasai-2003/Phantom/releases), drag to Applications, open.
 
-**Option B — Homebrew**
+> **Note:** Phantom is not notarized. On first launch, right-click → Open → Open anyway.
 
-```bash
-brew tap rbc33/ghostbar
-brew install --cask ghostbar
-```
-
-**Option C — Build from source**
+**Option B — Build from source**
 
 ```bash
 # Requirements: macOS 13+, Xcode Command Line Tools
 xcode-select --install
 
-git clone https://github.com/rbc33/Ghostbar.git && cd Ghostbar
+git clone https://github.com/nagasai-2003/Phantom.git && cd Phantom
 bash build.sh
-open Ghostbar.app
+open Phantom.app
 ```
 
-The **⬡** icon appears in your menu bar. Click → **Open chat**.
+The **◈** icon appears in your menu bar. Click → **Open chat**.
 
 ---
 
@@ -160,7 +146,7 @@ The window renders normally on your physical display. It simply does not exist t
 
 ## Backends
 
-Open **⬡ → Settings…** and pick your backend:
+Open **◈ → Settings…** and pick your backend:
 
 | Backend | URL | Notes |
 |---|---|---|
@@ -178,7 +164,7 @@ Any OpenAI-compatible server works — select **OpenAI** and set the URL.
 
 1. Go to [build.nvidia.com](https://build.nvidia.com) → sign in → any model → **Get API Key**
 2. Key starts with `nvapi-`
-3. In Ghostbar: select **NVIDIA NIM**, paste key
+3. In Phantom: select **NVIDIA NIM**, paste key
 
 Hundreds of models (Llama, Mistral, Gemma, Qwen, DeepSeek) — no credit card required.
 
@@ -207,7 +193,7 @@ Press **🎙** or **⌘⌥** → speak → press again → transcribed and sent.
 
 **⌘⇧** → captures screen → attaches to next message.
 
-The model sees your screen. The screen recorder doesn't see Ghostbar.
+The model sees your screen. The screen recorder doesn't see Phantom.
 
 Works with any vision model: `llava`, `gpt-4o`, `gemma3`, `claude-opus-4-7`…
 
@@ -242,8 +228,8 @@ All shortcuts customizable in Settings.
 PRs welcome. Open an issue first for large changes.
 
 ```bash
-git clone https://github.com/rbc33/Ghostbar.git
-cd Ghostbar
+git clone https://github.com/nagasai-2003/Phantom.git
+cd Phantom
 open Package.swift   # Xcode opens automatically
 ```
 
@@ -251,6 +237,8 @@ open Package.swift   # Xcode opens automatically
 
 <div align="center">
 
-Made with ⬡ — because some things should stay invisible.
+Made with ◈ — because some things should stay invisible.
+
+<sub>Phantom is a fork of <a href="https://github.com/rbc33/Ghostbar">Ghostbar</a> by rbc33, used under the MIT License.</sub>
 
 </div>
