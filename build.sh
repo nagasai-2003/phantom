@@ -4,7 +4,7 @@ set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
-VERSION="1.0.2"
+VERSION="1.1.0"
 APP="Phantom.app"
 DMG="Phantom-v${VERSION}.dmg"
 
@@ -30,8 +30,8 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
   <key>CFBundleExecutable</key><string>Phantom</string>
   <key>CFBundleIdentifier</key><string>com.local.phantom</string>
   <key>CFBundleName</key><string>Phantom</string>
-  <key>CFBundleVersion</key><string>1.0.0</string>
-  <key>CFBundleShortVersionString</key><string>1.0.0</string>
+  <key>CFBundleVersion</key><string>1.1.0</string>
+  <key>CFBundleShortVersionString</key><string>1.1.0</string>
   <key>CFBundleIconFile</key><string>Phantom</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>

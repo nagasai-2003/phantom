@@ -111,7 +111,7 @@ Pair with Ollama or LM Studio for fully on-device inference. Nothing leaves your
 
 **Option A — DMG (fastest)**
 
-Download [`Phantom-v1.0.2.dmg`](https://github.com/nagasai-2003/Phantom/releases), drag to Applications, open.
+Download [`Phantom-v1.1.0.dmg`](https://github.com/nagasai-2003/Phantom/releases), drag to Applications, open.
 
 > **Note:** Phantom is not notarized. On first launch, right-click → Open → Open anyway.
 
