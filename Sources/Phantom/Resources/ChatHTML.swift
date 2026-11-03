@@ -120,6 +120,10 @@ html,body{height:100%;background:transparent;color:var(--text);
 #mic-btn.transcribing{border-color:var(--muted);color:var(--muted);cursor:default}
 @keyframes recpulse{0%,100%{box-shadow:0 0 0 0 rgba(248,113,113,.4)}50%{box-shadow:0 0 0 4px rgba(248,113,113,0)}}
 #btn.stopping{border-color:var(--error);color:var(--error)}
+#listen-btn{font-size:13px;padding:3px 7px}
+#listen-btn.on{border-color:var(--rec);color:var(--rec);animation:recpulse 1s ease-in-out infinite}
+#listen-bar{display:none;font-size:10px;color:var(--rec);padding:4px 14px 0;letter-spacing:.03em}
+#listen-bar.visible{display:block}
 #screenshot-btn{padding:5px 8px;line-height:0;font-size:13px}
 #screenshot-btn.captured{border-color:var(--accent);color:var(--accent)}
 #screenshot-indicator{display:none;font-size:10px;color:var(--accent);padding:3px 14px 0;
@@ -160,11 +164,13 @@ html,body{height:100%;background:transparent;color:var(--text);
   <div id="msgs"></div>
   <div id="hint"></div>
   <div id="screenshot-indicator" title="Screenshot attached — click to remove">📎 screenshot attached</div>
+  <div id="listen-bar"></div>
   <div id="bottom">
     <textarea id="inp" placeholder="Message… (Enter to send)" rows="1"></textarea>
-    <button id="screenshot-btn" class="action-btn" title="Capture screen"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M1 4V1h4M11 1h4v3M15 10v3h-4M5 13H1v-3"/></svg></button>
     <button id="mic-btn" class="action-btn" title="Record">🎙</button>
-    <button id="btn" class="action-btn">↵</button>
+    <button id="listen-btn" class="action-btn" title="Listen to call audio — your mic stays off (⌃2)">🎧</button>
+    <button id="screenshot-btn" class="action-btn" title="Screenshot — attach your screen to the next message (⌃3)"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M1 4V1h4M11 1h4v3M15 10v3h-4M5 13H1v-3"/></svg></button>
+    <button id="btn" class="action-btn" title="Send (Enter, or ⌃4 from any app)">↵</button>
   </div>
 </div>
 <script>
@@ -311,7 +317,18 @@ document.getElementById('msgs').addEventListener('scroll', () => {
   }
 });
 
-function receiveModels(models, backend) {
+// Models that can read screenshots (📷), sent by the app with the model list.
+let visionModels = new Set();
+const modelLabel = m => m.split(':')[0] + (visionModels.has(m) ? ' 📷' : '');
+
+// For a screenshot message: the selected model if it can see images, else the first 📷 model.
+function modelForScreenshot() {
+  if (visionModels.has(model) || !visionModels.size) return model;
+  return [...visionModels][0];
+}
+
+function receiveModels(models, backend, vision) {
+  visionModels = new Set(vision || []);
   backendBadge.textContent = backend;
   if (!models.length) { modelName.textContent = 'no models'; return; }
   const saved = window.savedModel; window.savedModel = null;
@@ -322,17 +339,20 @@ function receiveModels(models, backend) {
   if (!model) model = models[0];
   const match = models.find(m => m === model || m.startsWith(model.split(':')[0]));
   model = match || models[0];
-  modelName.textContent = model.split(':')[0];
+  modelName.textContent = modelLabel(model);
   modelDropdown.innerHTML = '';
   models.forEach(m => {
     const div = document.createElement('div');
     div.className = 'model-opt' + (m === model ? ' active' : '');
-    div.textContent = m;
+    div.dataset.model = m;
+    div.textContent = m + (visionModels.has(m) ? '  📷' : '');
+    if (visionModels.has(m)) div.title = 'Can read screenshots';
     div.addEventListener('click', e => {
       e.stopPropagation(); model = m;
-      modelName.textContent = m.split(':')[0];
-      modelDropdown.querySelectorAll('.model-opt').forEach(el => el.classList.toggle('active', el.textContent === m));
+      modelName.textContent = modelLabel(m);
+      modelDropdown.querySelectorAll('.model-opt').forEach(el => el.classList.toggle('active', el.dataset.model === m));
       modelDropdown.classList.remove('open');
+      if (hasScreenshot) showScreenshotIndicator();
     });
     modelDropdown.appendChild(div);
   });
@@ -367,7 +387,7 @@ function toggleMic() {
     window.webkit.messageHandlers.startRecording.postMessage({});
   } else if (micState === 'recording') {
     micBtn.classList.remove('recording');
-    micBtn.title = 'Record (' + shortcutLabel() + ')';
+    micBtn.title = 'Your mic â record your own voice (' + shortcutLabel() + ')';
     window.webkit.messageHandlers.stopRecording.postMessage({});
   }
 }
@@ -447,6 +467,7 @@ btn.addEventListener('click', e => {
     }
     currentBody = null;
     btn.textContent = '↵'; btn.classList.remove('stopping');
+    sendQueuedListen();
     return;
   }
   send();
@@ -465,7 +486,7 @@ function onTranscription(text) {
   micState = 'idle';
   micBtn.classList.remove('recording','transcribing');
   micBtn.textContent = '🎙';
-  micBtn.title = 'Record (' + shortcutLabel() + ')';
+  micBtn.title = 'Your mic â record your own voice (' + shortcutLabel() + ')';
   if (text && text.trim()) {
     const inp = document.getElementById('inp');
     inp.value = text.trim();
@@ -479,15 +500,15 @@ function onMicError(msg) {
   micState = 'idle';
   micBtn.classList.remove('recording','transcribing');
   micBtn.textContent = '🎙';
-  micBtn.title = 'Record (' + shortcutLabel() + ')';
+  micBtn.title = 'Your mic â record your own voice (' + shortcutLabel() + ')';
   addMsg('err').textContent = msg;
 }
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
-function addMsg(role) {
+function addMsg(role, aiModel) {
   const c = document.getElementById('msgs'), d = document.createElement('div');
   d.className = 'msg ' + role;
-  const L = {user:'you', ai:model.split(':')[0], err:'error'};
+  const L = {user:'you', ai:modelLabel(aiModel || model), err:'error'};
   d.innerHTML = '<div class="lbl">' + (L[role]||role) + '</div><div class="body"></div>';
   if (role === 'ai') {
     const copyBtn = document.createElement('button');
@@ -557,6 +578,7 @@ function endStream(isError) {
     if (msgDiv) msgDiv.appendChild(retryBtn);
   }
   currentBody = null;
+  sendQueuedListen();
 }
 
 // ── Screenshot ────────────────────────────────────────────────────────────────
@@ -585,7 +607,7 @@ function clearScreenshotUI() {
   hasScreenshot = false;
   screenshotBtn.innerHTML = SCREENSHOT_ICON;
   screenshotBtn.classList.remove('captured');
-  screenshotBtn.title = 'Capture screen';
+  screenshotBtn.title = 'Screenshot — attach your screen to the next message (⌃3)';
   screenshotBtn.disabled = false;
   screenshotIndicator.style.display = 'none';
 }
@@ -597,8 +619,18 @@ function onScreenshotCaptured() {
   screenshotBtn.classList.add('captured');
   screenshotBtn.title = 'Screenshot attached — click to remove';
   screenshotBtn.disabled = false;
-  screenshotIndicator.style.display = 'block';
+  showScreenshotIndicator();
   document.getElementById('inp').focus();
+}
+
+// Tells the user which model will read the screenshot.
+function showScreenshotIndicator() {
+  const m = modelForScreenshot();
+  let text = '📎 screenshot attached';
+  if (!visionModels.size) text += ' · ⚠ no 📷 model on this backend; pick one that reads images';
+  else if (m !== model) text += ' · will be read by ' + m.split(':')[0] + ' 📷';
+  screenshotIndicator.textContent = text;
+  screenshotIndicator.style.display = 'block';
 }
 
 function onScreenshotError() {
@@ -611,8 +643,9 @@ function sendText(text, withScreenshot) {
   if (busy || !text) return;
   modelDropdown.classList.remove('open');
   const hasImg = !!(withScreenshot || hasScreenshot);
+  const useModel = hasImg ? modelForScreenshot() : model;
   addMsg('user').textContent = text + (hasImg ? ' 📎' : '');
-  currentBody = addMsg('ai');
+  currentBody = addMsg('ai', useModel);
   currentBody.classList.add('cursor');
   busy = true; streaming = true;
   streamStartTime = Date.now(); tokenCount = 0;
@@ -625,7 +658,7 @@ function sendText(text, withScreenshot) {
   const ctx = hasImg
     ? [messages[messages.length - 1]]
     : (messages.length > CTX_WINDOW ? messages.slice(-CTX_WINDOW) : messages);
-  window.webkit.messageHandlers.sendMessage.postMessage({messages: ctx, model: model, screenshot: hasImg || null});
+  window.webkit.messageHandlers.sendMessage.postMessage({messages: ctx, model: useModel, screenshot: hasImg || null});
 }
 
 function send() {
@@ -634,7 +667,98 @@ function send() {
   if (!text && hasScreenshot) text = screenshotPrompt || 'Look at this screenshot. Find any programming problem, error, or bug and explain how to fix it.';
   if (!text) return;
   inp.value = ''; inp.style.height = 'auto';
+  listenHeard = false;
   sendText(text);
+}
+
+// ── Listen (call audio) ───────────────────────────────────────────────────────
+// Transcribes what the Mac plays (the other person), never the microphone.
+// Text streams into the box; a clear pause or Enter sends it.
+const listenBtn = document.getElementById('listen-btn');
+const listenBar = document.getElementById('listen-bar');
+let listening = false, listenHeard = false, listenQueued = false;
+let autoSendPause = 3;   // seconds; 0 = only ⌃4 / Enter sends
+
+function listenReadyText() {
+  return '🎧 Listening to call audio · your mic is off · ' +
+    (autoSendPause > 0 ? 'sends after a ' + autoSendPause + ' s pause · ⌃4 sends now'
+                       : 'auto-send off · ⌃4 sends');
+}
+
+function setAutoSendPause(secs) {
+  autoSendPause = secs;
+  if (listening) listenBar.textContent = listenReadyText();
+}
+
+function setListenUI(on) {
+  listening = on;
+  listenHeard = false; listenQueued = false;
+  listenBtn.classList.toggle('on', on);
+  listenBtn.title = on ? 'Stop listening (⌃2)' : 'Listen to call audio — your mic stays off (⌃2)';
+  listenBar.textContent = listenReadyText();
+  listenBar.classList.toggle('visible', on);
+}
+
+function setListening(on) {
+  if (on === listening) return;
+  setListenUI(on);
+  window.webkit.messageHandlers[on ? 'startListening' : 'stopListening'].postMessage({});
+}
+
+listenBtn.addEventListener('click', e => { e.preventDefault(); setListening(!listening); });
+
+function onListenText(t) {
+  if (!listening) return;
+  const inp = document.getElementById('inp');
+  const cur = inp.value.trim();
+  inp.value = cur ? cur + ' ' + t : t;
+  inp.style.height = 'auto';
+  inp.style.height = Math.min(inp.scrollHeight, 72) + 'px';
+  inp.scrollTop = inp.scrollHeight;
+  listenHeard = true;
+}
+
+function onListenBusy(isBusy) {
+  if (listening) listenBar.textContent = isBusy ? '🎧 Transcribing…' : listenReadyText();
+}
+
+function onListenPause() {
+  if (!listening || !listenHeard) return;
+  if (busy) { listenQueued = true; return; }
+  send();
+}
+
+function sendQueuedListen() {
+  if (!listenQueued) return;
+  listenQueued = false;
+  if (document.getElementById('inp').value.trim() || hasScreenshot) send();
+}
+
+// ── Global shortcuts (work while the call app is focused) ─────────────────────
+// Clears any half-pressed in-window modifier shortcut (⌘⌥ mic, ⌘⇧ capture) so it can't fire on key-up.
+function disarmModifierShortcuts() { _scArmed = false; _scCapArmed = false; }
+
+function hotkeyListen() { disarmModifierShortcuts(); setListening(!listening); }
+
+function hotkeyScreenshot() {
+  disarmModifierShortcuts();
+  if (hasScreenshot) {   // replace the old one with a fresh capture
+    clearScreenshotUI();
+    window.webkit.messageHandlers.clearScreenshot.postMessage({});
+  }
+  triggerCapture();
+}
+
+// Sends what is in the box now (and any attached screenshot) without waiting for a pause.
+function hotkeyAnswer() {
+  disarmModifierShortcuts();
+  if (busy) { listenQueued = true; return; }
+  send();
+}
+
+function onListenError(msg) {
+  setListenUI(false);
+  addMsg('err').textContent = msg;
 }
 
 document.getElementById('inp').addEventListener('keydown', e => {

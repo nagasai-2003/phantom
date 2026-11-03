@@ -100,6 +100,7 @@ Pair with Ollama or LM Studio for fully on-device inference. Nothing leaves your
 | 🍎 **Menu bar only** | No Dock icon. No trace. Appears as **◈** |
 | 🤖 **Multi-backend** | Ollama, OpenAI, Claude, OpenRouter, NVIDIA NIM, LM Studio, llama.cpp |
 | 🎙 **Voice input** | On-device transcription via whisper-cpp |
+| 🎧 **Listen mode** | Live transcript of call audio (the other person). Your mic stays off. |
 | 📸 **Screenshot analysis** | Capture your screen → attach to message. Model sees it, recorder doesn't. |
 | 🔒 **Zero telemetry** | No analytics, no cloud, no tracking |
 | ⚡ **Instant startup** | Native Swift — no Chromium, no Electron overhead |
@@ -151,7 +152,8 @@ Open **◈ → Settings…** and pick your backend:
 | Backend | URL | Notes |
 |---|---|---|
 | **Ollama** | `http://localhost:11434` | Local, no key |
-| **OpenAI** | `https://api.openai.com/v1` | API key required |
+| **OpenAI** | `https://api.openai.com/v1` | API key required · 📷 gpt-4o, gpt-4.1, gpt-5 read screenshots |
+| **Groq** | `https://api.groq.com/openai/v1` | Free API key · 📷 qwen3.8-27b reads screenshots |
 | **Anthropic** | `https://api.anthropic.com/v1` | API key required |
 | **OpenRouter** | `https://openrouter.ai/api/v1` | API key required |
 | **NVIDIA NIM** | `https://integrate.api.nvidia.com/v1` | Free tier available |
@@ -159,6 +161,8 @@ Open **◈ → Settings…** and pick your backend:
 | **llama.cpp** | `http://localhost:8080/v1` | Local, no key |
 
 Any OpenAI-compatible server works — select **OpenAI** and set the URL.
+
+The model list shows chat models only (speech, safety-filter, embedding, image-generation and Arabic-only models are hidden). Models that can read screenshots are marked **📷** and listed first. If you attach a screenshot while a text-only model is selected, Phantom sends that message to a 📷 model and says which one. Each provider keeps its own API key, so switching between Groq and OpenAI keeps both.
 
 ### Free models via NVIDIA NIM
 
@@ -189,9 +193,21 @@ Press **🎙** or **⌘⌥** → speak → press again → transcribed and sent.
 
 ---
 
+## Listen mode
+
+Listen mode **starts automatically when the chat opens** (turn this off with ◈ → *Auto-listen when chat opens*). Press **🎧** or **⌃2** to stop or start it. It transcribes what your Mac is playing, such as the other person on a call.
+
+- Uses ScreenCaptureKit to capture system audio only. **The microphone is never opened**, so your own voice is not recorded.
+- Speech is transcribed on-device in short chunks and appears in the message box as it is spoken.
+- After a clear pause (3 s of silence by default; change it in â â *Auto-send after pause*: 2 s, 3 s, 5 s or Off) the transcript is sent to the AI automatically. Press **⌃4** (or **Enter** in the chat) to send sooner.
+- Needs whisper-cpp (see Voice input) and **Screen & System Audio Recording** permission.
+- Recording or transcribing other people may need their consent where you live. Check before you use it on a call.
+
+---
+
 ## Screenshot analysis
 
-**⌘⇧** → captures screen → attaches to next message.
+Press the **screenshot button** (next to 🎧) or **⌘⇧** → captures screen → attaches to next message.
 
 The model sees your screen. The screen recorder doesn't see Phantom.
 
@@ -206,7 +222,10 @@ Works with any vision model: `llava`, `gpt-4o`, `gemma3`, `claude-opus-4-7`…
 | Send message | **Enter** |
 | New line | **Shift+Enter** |
 | Voice input | **⌘⌥** |
-| Screenshot | **⌘⇧** |
+| Show / hide chat (any app, even full screen) | **⌃1** (Control + 1) |
+| Listen on / off | **⌃2** (Control + 2) or 🎧 |
+| Screenshot | **⌃3** (Control + 3), **⌘⇧**, or the screenshot button |
+| Answer now | **⌃4** (Control + 4) |
 | Close | **Cmd+W** |
 
 All shortcuts customizable in Settings.

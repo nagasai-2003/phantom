@@ -27,7 +27,9 @@ class ChatWindow: NSObject, NSWindowDelegate {
         window.standardWindowButton(.closeButton)?.isHidden    = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden     = true
-        window.level = .floating
+        // Show on every desktop and over full-screen apps (Zoom, Chrome, Keynote…).
+        window.level = .statusBar
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         if shouldCenter { window.center() }
         window.isReleasedWhenClosed = false
         window.sharingType = .none

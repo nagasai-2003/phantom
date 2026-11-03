@@ -6,6 +6,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var globalHotKey: GlobalHotKey?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        UserDefaults.standard.register(defaults: ["autoListen": true, "autoSendPause": 3.0])
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem?.button {
@@ -17,10 +18,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             atPath: NSHomeDirectory() + "/.ollama-chat",
             withIntermediateDirectories: true)
         globalHotKey = GlobalHotKey { [weak self] in self?.hotKeyToggleChat() }
+        globalHotKey?.register(.listenHotKey, id: 2) { [weak self] in self?.hotKeyChatAction("hotkeyListen()") }
+        globalHotKey?.register(.screenshotHotKey, id: 3) { [weak self] in self?.hotKeyChatAction("hotkeyScreenshot()") }
+        globalHotKey?.register(.answerHotKey, id: 4) { [weak self] in self?.hotKeyChatAction("hotkeyAnswer()") }
+    }
+
+    // Runs a chat action from a global shortcut. Shows the chat without taking
+    // focus away from the call app.
+    func hotKeyChatAction(_ js: String) {
+        let fresh = chatWindow == nil
+        if fresh { chatWindow = ChatWindow() }
+        guard let cw = chatWindow else { return }
+        if !cw.window.isVisible { cw.window.orderFrontRegardless() }
+        // A new chat starts listening by itself; toggling now would stop it.
+        if fresh && js == "hotkeyListen()" && UserDefaults.standard.bool(forKey: "autoListen") { return }
+        cw.webView.runWhenReady(js)
     }
 
     func hotKeyToggleChat() {
         if chatWindow == nil { chatWindow = ChatWindow() }
+        chatWindow?.webView.runWhenReady("disarmModifierShortcuts()")
         if chatWindow?.window.isVisible == true {
             chatWindow?.window.orderOut(nil)
         } else {
@@ -55,6 +72,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openItem.target = self
         openItem.isEnabled = true
         menu.addItem(openItem)
+        let autoItem = NSMenuItem(title: "Auto-listen when chat opens", action: #selector(toggleAutoListen(_:)), keyEquivalent: "")
+        autoItem.target = self
+        autoItem.isEnabled = true
+        autoItem.state = UserDefaults.standard.bool(forKey: "autoListen") ? .on : .off
+        menu.addItem(autoItem)
+        let pauseItem = NSMenuItem(title: "Auto-send after pause", action: nil, keyEquivalent: "")
+        let pauseMenu = NSMenu()
+        let currentPause = UserDefaults.standard.double(forKey: "autoSendPause")
+        for (title, secs) in [("2 seconds", 2.0), ("3 seconds", 3.0), ("5 seconds", 5.0), ("Off — send with ⌃4", 0.0)] {
+            let item = NSMenuItem(title: title, action: #selector(setAutoSendPause(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = secs
+            item.state = currentPause == secs ? .on : .off
+            pauseMenu.addItem(item)
+        }
+        pauseItem.submenu = pauseMenu
+        pauseItem.isEnabled = true
+        menu.addItem(pauseItem)
         menu.addItem(.separator())
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(configureBackend), keyEquivalent: "")
         settingsItem.target = self
@@ -70,6 +105,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func toggleAutoListen(_ sender: NSMenuItem) {
+        let on = !UserDefaults.standard.bool(forKey: "autoListen")
+        UserDefaults.standard.set(on, forKey: "autoListen")
+        sender.state = on ? .on : .off
+    }
+
+    @objc func setAutoSendPause(_ sender: NSMenuItem) {
+        guard let secs = sender.representedObject as? Double else { return }
+        UserDefaults.standard.set(secs, forKey: "autoSendPause")
+        sender.menu?.items.forEach { $0.state = $0 === sender ? .on : .off }
+        chatWindow?.webView.sendAutoSendPause()
     }
 
     @objc func toggleChat() {
@@ -101,6 +149,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.title = "Settings"
         panel.center()
         panel.sharingType = .none
+        // Above the chat window, which also floats over full-screen apps.
+        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.appearance = NSAppearance(named: .darkAqua)
         panel.backgroundColor = NSColor(red: 41/255, green: 44/255, blue: 51/255, alpha: 1)
         panel.alphaValue = 0.9
@@ -114,7 +165,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let presets: [Preset] = [
             Preset(label: "Ollama",        type: .ollama,     url: "http://localhost:11434",              hint: "Local Ollama instance"),
-            Preset(label: "OpenAI",        type: .openai,     url: "https://api.openai.com/v1",           hint: "Requires API key"),
+            Preset(label: "OpenAI",        type: .openai,     url: "https://api.openai.com/v1",           hint: "Requires API key · 📷 gpt-4o, gpt-4.1, gpt-5 read screenshots"),
+            Preset(label: "Groq",          type: .openai,     url: "https://api.groq.com/openai/v1",      hint: "Requires API key (free at console.groq.com) · 📷 qwen3.8 reads screenshots"),
             Preset(label: "Anthropic",     type: .anthropic,  url: "https://api.anthropic.com/v1",        hint: "Requires API key"),
             Preset(label: "OpenRouter",    type: .openrouter, url: "https://openrouter.ai/api/v1",        hint: "Requires API key"),
             Preset(label: "NVIDIA NIM",    type: .openai,     url: "https://integrate.api.nvidia.com/v1", hint: "Requires API key"),
@@ -166,6 +218,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             weak var urlField: NSTextField?
             weak var hintField: NSTextField?
             weak var backendPopup: NSPopUpButton?
+            weak var keyField: NSSecureTextField?
             var presets: [Preset] = []
             @objc func handle() {
                 let idx = backendPopup?.indexOfSelectedItem ?? 0
@@ -173,6 +226,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let p = presets[idx]
                 if !p.url.isEmpty { urlField?.stringValue = p.url }
                 hintField?.stringValue = p.hint
+                keyField?.stringValue = BackendConfig.savedKey(for: p.url)
             }
         }
         let bpHandler = BackendPopupHandler()
@@ -195,6 +249,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         keyField.placeholderString = "Optional"
         keyRow.addArrangedSubview(keyLabel)
         keyRow.addArrangedSubview(keyField)
+        bpHandler.keyField = keyField
 
         class BackendTestHandler: NSObject {
             weak var urlField: NSTextField?
@@ -261,25 +316,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 URLSession.shared.dataTask(with: req) { [weak self] data, response, _ in
                     var names: [String] = []
                     if let data = data {
-                        if isOllama {
-                            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                               let models = json["models"] as? [[String: Any]] {
-                                names = models.compactMap { $0["name"] as? String }
-                            }
-                        } else {
-                            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                               let models = json["data"] as? [[String: Any]] {
-                                names = models.compactMap { $0["id"] as? String }.sorted()
-                            }
+                        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let models = json[isOllama ? "models" : "data"] as? [[String: Any]] {
+                            let list = ModelCatalog.chatModels(models, idKey: isOllama ? "name" : "id")
+                            names = list.all.map { list.vision.contains($0) ? "\($0) 📷" : $0 }
                         }
                     }
                     let ok = !names.isEmpty
                     RunLoop.main.perform(inModes: [.common]) { [weak self] in
                         picker.items = ok ? names : ["No models found"]
                         if ok {
-                            if picker.selected.isEmpty || !names.contains(picker.selected) {
-                                picker.selected = names[0]
-                            }
+                            let ids = names.map { $0.replacingOccurrences(of: " 📷", with: "") }
+                            let current = picker.selected.replacingOccurrences(of: " 📷", with: "")
+                            picker.selected = names[ids.firstIndex(of: current) ?? 0]
                         }
                         self?.refreshBtn?.isEnabled = true
                     }
@@ -301,7 +350,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let modelPicker = PrivateDropdown()
         modelPicker.selected = UserDefaults.standard.string(forKey: "selectedModel") ?? ""
-        modelPicker.onSelect = { model in UserDefaults.standard.set(model, forKey: "selectedModel") }
+        modelPicker.onSelect = { model in
+            UserDefaults.standard.set(model.replacingOccurrences(of: " 📷", with: ""), forKey: "selectedModel")
+        }
         let modelsRow = NSStackView()
         modelsRow.orientation = .horizontal
         modelsRow.spacing = 8

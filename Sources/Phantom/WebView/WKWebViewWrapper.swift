@@ -4,9 +4,12 @@ import AVFoundation
 class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
     let view: WKWebView
     let recorder = AudioRecorder()
+    let listener = SystemAudioListener()
     var isRecording = false
     var currentStreamSession: URLSession?
     var storedScreenshot: String? = nil
+    private var pageReady = false
+    private var pendingJS: [String] = []
 
     init(frame: NSRect = .zero) {
         let config = WKWebViewConfiguration()
@@ -15,9 +18,10 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
         view = WKWebView(frame: frame, configuration: config)
         view.setValue(false, forKey: "drawsBackground")
         super.init()
-        for name in ["sendMessage","loadModels","startRecording","stopRecording","stopStream","checkWhisper","closeWindow","captureScreen","clearScreenshot","initModel","openSettings"] {
+        for name in ["sendMessage","loadModels","startRecording","stopRecording","stopStream","checkWhisper","closeWindow","captureScreen","clearScreenshot","initModel","openSettings","startListening","stopListening"] {
             cc.add(self, name: name)
         }
+        setUpListener()
         loadHTML()
         sendSavedModel()
     }
@@ -32,18 +36,31 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
             let img = useScreenshot ? storedScreenshot : nil
             streamResponse(messages: messages, model: model, image: img)
         case "captureScreen":
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self = self else { return }
-                if let b64 = captureScreenBase64() {
-                    self.storedScreenshot = b64
-                    DispatchQueue.main.async { self.view.evaluateJavaScript("onScreenshotCaptured()", completionHandler: nil) }
-                } else {
-                    DispatchQueue.main.async { self.view.evaluateJavaScript("onScreenshotError()", completionHandler: nil) }
+            captureScreenBase64 { [weak self] b64 in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    if let b64 = b64 {
+                        self.storedScreenshot = b64
+                        self.view.evaluateJavaScript("onScreenshotCaptured()", completionHandler: nil)
+                    } else {
+                        self.view.evaluateJavaScript("onScreenshotError()", completionHandler: nil)
+                    }
                 }
             }
         case "clearScreenshot":
             storedScreenshot = nil
+        case "startListening":
+            listener.start()
+        case "stopListening":
+            listener.stop()
         case "initModel":
+            pageReady = true
+            pendingJS.forEach { view.evaluateJavaScript($0, completionHandler: nil) }
+            pendingJS.removeAll()
+            sendAutoSendPause()
+            if UserDefaults.standard.bool(forKey: "autoListen") && !listener.isListening {
+                view.evaluateJavaScript("setListening(true)", completionHandler: nil)
+            }
             sendSavedModel()
             sendShortcut()
             sendCaptureShortcut()
@@ -86,6 +103,27 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
             recorder.stop()
         default: break
         }
+    }
+
+    func setUpListener() {
+        listener.onText  = { [weak self] t in self?.callJS("onListenText", t) }
+        listener.onPause = { [weak self] in self?.view.evaluateJavaScript("onListenPause()", completionHandler: nil) }
+        listener.onBusy  = { [weak self] busy in self?.view.evaluateJavaScript("onListenBusy(\(busy))", completionHandler: nil) }
+        listener.onError = { [weak self] msg in self?.callJS("onListenError", msg) }
+    }
+
+    func sendAutoSendPause() {
+        runWhenReady("setAutoSendPause(\(UserDefaults.standard.double(forKey: "autoSendPause")))")
+    }
+
+    // Runs JS now, or once the chat page has loaded.
+    func runWhenReady(_ js: String) {
+        if pageReady { view.evaluateJavaScript(js, completionHandler: nil) } else { pendingJS.append(js) }
+    }
+
+    // Calls a JS function with one string argument, JSON-escaped.
+    func callJS(_ fn: String, _ arg: String) {
+        view.evaluateJavaScript("\(fn)(\(jsonString([arg]))[0])", completionHandler: nil)
     }
 
     func requestMicAndRecord() {
@@ -157,10 +195,7 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let models = json["models"] as? [[String: Any]] else { return }
-            let names = models.compactMap { $0["name"] as? String }
-            DispatchQueue.main.async {
-                self.view.evaluateJavaScript("receiveModels(\(jsonString(names)),'ollama')", completionHandler: nil)
-            }
+            self.sendModels(ModelCatalog.chatModels(models, idKey: "name"), backend: "ollama")
         }.resume()
     }
 
@@ -174,10 +209,7 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let models = json["data"] as? [[String: Any]] else { return }
-            let names = models.compactMap { $0["id"] as? String }.sorted()
-            DispatchQueue.main.async {
-                self.view.evaluateJavaScript("receiveModels(\(jsonString(names)),'openai')", completionHandler: nil)
-            }
+            self.sendModels(ModelCatalog.chatModels(models), backend: "anthropic")
         }.resume()
     }
 
@@ -189,11 +221,21 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
             guard let data = data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let models = json["data"] as? [[String: Any]] else { return }
-            let names = models.compactMap { $0["id"] as? String }.sorted()
-            DispatchQueue.main.async {
-                self.view.evaluateJavaScript("receiveModels(\(jsonString(names)),'openai')", completionHandler: nil)
-            }
+            self.sendModels(ModelCatalog.chatModels(models), backend: Self.backendLabel(cfg))
         }.resume()
+    }
+
+    static func backendLabel(_ cfg: BackendConfig) -> String {
+        if cfg.url.contains("groq.com") { return "groq" }
+        if cfg.url.contains("nvidia.com") { return "nvidia" }
+        return cfg.type == .openrouter ? "openrouter" : "openai"
+    }
+
+    func sendModels(_ list: (all: [String], vision: [String]), backend: String) {
+        DispatchQueue.main.async {
+            self.view.evaluateJavaScript("receiveModels(\(jsonString(list.all)),'\(backend)',\(jsonString(list.vision)))",
+                                         completionHandler: nil)
+        }
     }
 
     func streamResponse(messages: [[String: Any]], model: String, image: String? = nil) {

@@ -6,7 +6,11 @@ struct RecordingShortcut {
 
     static let `default`        = RecordingShortcut(modifiers: [.command, .option], key: "")
     static let defaultCapture   = RecordingShortcut(modifiers: [.command, .shift], key: "")
-    static let defaultToggle    = RecordingShortcut(modifiers: [.command, .option], key: "m")
+    // Global shortcuts: hold Control and press 1–4, in the same order as the chat buttons.
+    static let defaultToggle    = RecordingShortcut(modifiers: [.control], key: "1")
+    static let listenHotKey     = RecordingShortcut(modifiers: [.control], key: "2")
+    static let screenshotHotKey = RecordingShortcut(modifiers: [.control], key: "3")
+    static let answerHotKey     = RecordingShortcut(modifiers: [.control], key: "4")
 
     static func load(prefix: String, fallback: RecordingShortcut) -> RecordingShortcut {
         let raw = UserDefaults.standard.integer(forKey: "\(prefix)Modifiers")

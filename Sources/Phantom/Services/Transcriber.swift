@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 
 let WHISPER_BIN = "/usr/local/bin/whisper-cli"
 
@@ -29,31 +30,58 @@ func findWhisperModel() -> String? {
     return nil
 }
 
-func transcribe(audioURL: URL, completion: @escaping (String?) -> Void) {
+// Runs whisper-cli on a WAV file and blocks until it finishes. Deletes the file afterwards.
+func transcribeSync(audioURL: URL) -> String? {
+    defer { try? FileManager.default.removeItem(at: audioURL) }
     guard let bin   = findWhisperBin(),
-          let model = findWhisperModel() else { completion(nil); return }
-    print("[whisper] \(bin) model=\(model)")
+          let model = findWhisperModel() else { return nil }
     let task = Process()
     task.executableURL = URL(fileURLWithPath: bin)
     task.arguments = ["--model", model, "--language", "auto", "--output-txt", "--no-prints", "--file", audioURL.path]
     let pipe = Pipe()
-    task.standardOutput = pipe; task.standardError = Pipe()
-    task.terminationHandler = { _ in
-        let txtURL = audioURL.deletingPathExtension().appendingPathExtension("txt")
-        if let text = try? String(contentsOf: txtURL, encoding: .utf8) {
-            let cleaned = text
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .replacingOccurrences(of: "\\[.*?\\]", with: "", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            try? FileManager.default.removeItem(at: txtURL)
-            try? FileManager.default.removeItem(at: audioURL)
-            completion(cleaned.isEmpty ? nil : cleaned)
-        } else {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let text = (String(data: data, encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            try? FileManager.default.removeItem(at: audioURL)
-            completion(text.isEmpty ? nil : text)
-        }
+    task.standardOutput = pipe; task.standardError = FileHandle.nullDevice
+    do { try task.run() } catch { print("[whisper] \(error)"); return nil }
+    let stdout = pipe.fileHandleForReading.readDataToEndOfFile()
+    task.waitUntilExit()
+
+    let txtURL = audioURL.deletingPathExtension().appendingPathExtension("txt")
+    defer { try? FileManager.default.removeItem(at: txtURL) }
+    let raw = (try? String(contentsOf: txtURL, encoding: .utf8)) ?? String(data: stdout, encoding: .utf8) ?? ""
+    // Whisper marks non-speech as [BLANK_AUDIO], (music), etc.
+    let cleaned = raw
+        .replacingOccurrences(of: "\\[.*?\\]", with: "", options: .regularExpression)
+        .replacingOccurrences(of: "\\(.*?\\)", with: "", options: .regularExpression)
+        .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    return cleaned.isEmpty ? nil : cleaned
+}
+
+func transcribe(audioURL: URL, completion: @escaping (String?) -> Void) {
+    DispatchQueue.global(qos: .userInitiated).async {
+        completion(transcribeSync(audioURL: audioURL))
     }
-    do { try task.run() } catch { print("[whisper] \(error)"); completion(nil) }
+}
+
+// Writes 16 kHz mono samples to a temporary WAV and transcribes it.
+func transcribeSamples(_ samples: [Float]) -> String? {
+    let url = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("phantom_listen_\(UUID().uuidString).wav")
+    let settings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVSampleRateKey: 16000.0,
+        AVNumberOfChannelsKey: 1,
+        AVLinearPCMBitDepthKey: 16,
+        AVLinearPCMIsFloatKey: false,
+        AVLinearPCMIsBigEndianKey: false
+    ]
+    do {
+        let file = try AVAudioFile(forWriting: url, settings: settings,
+                                   commonFormat: .pcmFormatFloat32, interleaved: false)
+        guard let buf = AVAudioPCMBuffer(pcmFormat: file.processingFormat,
+                                         frameCapacity: AVAudioFrameCount(samples.count)) else { return nil }
+        buf.frameLength = AVAudioFrameCount(samples.count)
+        samples.withUnsafeBufferPointer { buf.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
+        try file.write(from: buf)
+    } catch { print("[listen] wav: \(error)"); return nil }
+    return transcribeSync(audioURL: url)
 }
