@@ -4,6 +4,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem?
     var chatWindow: ChatWindow?
     var globalHotKey: GlobalHotKey?
+    var accessItem: NSMenuItem?
+    var accessTimer: Timer?
+    var wasUnlocked = AccessManager.shared.isUnlocked
+    var warnedEnding = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: ["autoListen": true, "autoSendPause": 3.0])
@@ -21,11 +25,87 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         globalHotKey?.register(.listenHotKey, id: 2) { [weak self] in self?.hotKeyChatAction("hotkeyListen()") }
         globalHotKey?.register(.screenshotHotKey, id: 3) { [weak self] in self?.hotKeyChatAction("hotkeyScreenshot()") }
         globalHotKey?.register(.answerHotKey, id: 4) { [weak self] in self?.hotKeyChatAction("hotkeyAnswer()") }
+        accessTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.tickAccess() }
     }
+
+    // MARK: Access codes
+
+    // Runs `action` if Phantom is unlocked; otherwise asks for a code first.
+    func withAccess(_ action: @escaping () -> Void) {
+        if AccessManager.shared.isUnlocked { action(); return }
+        // Deferred so a menu or hotkey handler finishes before the modal prompt runs.
+        DispatchQueue.main.async { [weak self] in self?.promptForCode(then: action) }
+    }
+
+    func promptForCode(title: String = "Enter your access code", then action: (() -> Void)? = nil) {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = "Paste the code you were given. Each code unlocks Phantom for a few hours and works once on this Mac."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 64))
+        field.placeholderString = "PH1-…"
+        field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        field.cell?.wraps = true
+        field.cell?.isScrollable = false
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Unlock")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        alert.window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        switch AccessManager.shared.redeem(field.stringValue) {
+        case .success:
+            wasUnlocked = true
+            warnedEnding = false
+            updateAccessItem()
+            action?()
+        case .failure(let failure):
+            promptForCode(title: failure.message, then: action)
+        }
+    }
+
+    @objc func enterAccessCode() {
+        DispatchQueue.main.async { [weak self] in self?.promptForCode() }
+    }
+
+    func updateAccessItem() {
+        let access = AccessManager.shared
+        accessItem?.title = access.isUnlocked
+            ? "Unlocked · \(AccessManager.describe(access.remaining)) left · Add code…"
+            : "🔒 Locked · Enter access code…"
+    }
+
+    // Warns 5 minutes before the time runs out and locks Phantom when it does.
+    func tickAccess() {
+        let access = AccessManager.shared
+        access.checkClock()
+        let unlocked = access.isUnlocked
+        if unlocked && access.remaining < 300 && !warnedEnding {
+            warnedEnding = true
+            chatWindow?.webView.runWhenReady("showNotice('⏳ Access ends in 5 minutes. Add a new code from the ◈ menu.')")
+        }
+        if wasUnlocked && !unlocked { lockApp() }
+        wasUnlocked = unlocked
+        updateAccessItem()
+    }
+
+    func lockApp() {
+        chatWindow?.webView.listener.stop()
+        chatWindow?.webView.runWhenReady("setListening(false)")
+        chatWindow?.window.orderOut(nil)
+        promptForCode(title: "Your access time has ended") { [weak self] in self?.toggleChat() }
+    }
+
+    // MARK: Chat
 
     // Runs a chat action from a global shortcut. Shows the chat without taking
     // focus away from the call app.
     func hotKeyChatAction(_ js: String) {
+        guard AccessManager.shared.isUnlocked else {
+            withAccess { [weak self] in self?.hotKeyChatAction(js) }
+            return
+        }
         let fresh = chatWindow == nil
         if fresh { chatWindow = ChatWindow() }
         guard let cw = chatWindow else { return }
@@ -36,12 +116,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func hotKeyToggleChat() {
-        if chatWindow == nil { chatWindow = ChatWindow() }
-        chatWindow?.webView.runWhenReady("disarmModifierShortcuts()")
         if chatWindow?.window.isVisible == true {
+            chatWindow?.webView.runWhenReady("disarmModifierShortcuts()")
             chatWindow?.window.orderOut(nil)
-        } else {
-            chatWindow?.showAndFocus()
+            return
+        }
+        withAccess { [weak self] in
+            guard let self = self else { return }
+            if self.chatWindow == nil { self.chatWindow = ChatWindow() }
+            self.chatWindow?.webView.runWhenReady("disarmModifierShortcuts()")
+            self.chatWindow?.showAndFocus()
         }
     }
 
@@ -72,6 +156,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openItem.target = self
         openItem.isEnabled = true
         menu.addItem(openItem)
+        let accessItem = NSMenuItem(title: "", action: #selector(enterAccessCode), keyEquivalent: "")
+        accessItem.target = self
+        accessItem.isEnabled = true
+        menu.addItem(accessItem)
+        self.accessItem = accessItem
+        updateAccessItem()
         let autoItem = NSMenuItem(title: "Auto-listen when chat opens", action: #selector(toggleAutoListen(_:)), keyEquivalent: "")
         autoItem.target = self
         autoItem.isEnabled = true
@@ -105,6 +195,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) {
         NSApp.activate(ignoringOtherApps: true)
+        updateAccessItem()
     }
 
     @objc func toggleAutoListen(_ sender: NSMenuItem) {
@@ -121,8 +212,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func toggleChat() {
-        if chatWindow == nil { chatWindow = ChatWindow() }
-        chatWindow?.showAndFocus()
+        withAccess { [weak self] in
+            guard let self = self else { return }
+            if self.chatWindow == nil { self.chatWindow = ChatWindow() }
+            self.chatWindow?.showAndFocus()
+        }
     }
 
     @objc func configureBackend() {

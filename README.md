@@ -130,6 +130,30 @@ The **◈** icon appears in your menu bar. Click → **Open chat**.
 
 ---
 
+## Access codes
+
+Phantom is locked until someone enters an access code. Each code unlocks it for 3 hours and works **once per Mac**.
+
+**Making codes** (on your own Mac):
+
+```bash
+pip install cryptography
+python3 tools/keygen.py init        # once: creates your signing key in ~/.phantom-keys/
+python3 tools/keygen.py generate    # prints 10 codes: 3 hours each, redeem within 7 days
+python3 tools/keygen.py generate --count 5 --hours 2 --valid-days 30
+python3 tools/keygen.py check PH1-…  # see what a code contains
+```
+
+- Codes are signed with an Ed25519 key. The **private key stays in `~/.phantom-keys/`** and is never committed. The app contains only the public key (`Sources/Phantom/Config/AccessPublicKey.swift`), so it can check codes but cannot create them.
+- Running `init --force` creates a new key and **invalidates all earlier codes**. Back up `~/.phantom-keys/`.
+- Every generated code is logged in `~/.phantom-keys/issued_codes.csv`.
+
+**Using a code:** open the chat (⌃1) or click ◈ → *Enter access code…*, then paste the code. The ◈ menu shows the time left. A second code adds its hours on top of the time left. Phantom warns 5 minutes before the time ends, then stops listening and locks.
+
+**Limits:** checks happen on the Mac, without a server. A code can't be faked or reused on the same Mac, but the same code could be used once on a *different* Mac, and codes can't be cancelled after they're handed out. A determined user with the source code could also remove the check. Online checking would be needed to close those gaps.
+
+---
+
 ## How the invisibility works
 
 macOS exposes a window-level API that controls whether a window participates in the display server's capture pipeline:

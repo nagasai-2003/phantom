@@ -9,3 +9,9 @@ extra/*
 .vscode/
 
 extra/
+
+# Access-code signing key and issued-code log must never be committed
+*.pem
+issued_codes.csv
+.phantom-keys/
+__pycache__/

@@ -365,6 +365,13 @@ function onWhisperStatus(hasBin, hasModel) {
   else if (!hasModel) { hint.textContent = '⚠ Whisper model not found. Download ggml-base.bin to /opt/homebrew/share/whisper-cpp/'; hint.classList.add('visible'); }
 }
 
+// Short status message from the app (e.g. access time ending).
+function showNotice(text) {
+  const hint = document.getElementById('hint');
+  hint.textContent = text;
+  hint.classList.add('visible');
+}
+
 // ── Mic ───────────────────────────────────────────────────────────────────────
 const micBtn = document.getElementById('mic-btn');
 const btn    = document.getElementById('btn');
