@@ -6,11 +6,13 @@ struct RecordingShortcut {
 
     static let `default`        = RecordingShortcut(modifiers: [.command, .option], key: "")
     static let defaultCapture   = RecordingShortcut(modifiers: [.command, .shift], key: "")
-    // Global shortcuts: hold Control and press 1–4, in the same order as the chat buttons.
+    // Global shortcuts. Control + 1 / 2 open and close the chat; Option (next to Space)
+    // + A / S / R answer, screenshot and record, so the thumb stays put during a call.
     static let defaultToggle    = RecordingShortcut(modifiers: [.control], key: "1")
-    static let listenHotKey     = RecordingShortcut(modifiers: [.control], key: "2")
-    static let screenshotHotKey = RecordingShortcut(modifiers: [.control], key: "3")
-    static let answerHotKey     = RecordingShortcut(modifiers: [.control], key: "4")
+    static let closeHotKey      = RecordingShortcut(modifiers: [.control], key: "2")
+    static let answerHotKey     = RecordingShortcut(modifiers: [.option], key: "a")
+    static let screenshotHotKey = RecordingShortcut(modifiers: [.option], key: "s")
+    static let listenHotKey     = RecordingShortcut(modifiers: [.option], key: "r")
 
     static func load(prefix: String, fallback: RecordingShortcut) -> RecordingShortcut {
         let raw = UserDefaults.standard.integer(forKey: "\(prefix)Modifiers")

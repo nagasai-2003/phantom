@@ -3,11 +3,12 @@ import CryptoKit
 import Security
 
 // A signed access code made by tools/keygen.py. Layout after "PH1-" (base32):
-// 8-byte id · 1-byte hours · 4-byte redeem-by (unix s, 0 = none) · 64-byte Ed25519 signature.
+// 8-byte id · 1-byte unlock time (1-127 = hours, 0x80 | n = n minutes) ·
+// 4-byte redeem-by (unix s, 0 = none) · 64-byte Ed25519 signature.
 struct AccessCode {
     static let prefix = "PH1"
     let id: String
-    let hours: Int
+    let duration: TimeInterval
     let redeemBy: Date?
 
     enum Failure: Error {
@@ -37,7 +38,7 @@ struct AccessCode {
         let redeem = p[9..<13].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
         return .success(AccessCode(
             id: p[0..<8].map { String(format: "%02x", $0) }.joined(),
-            hours: Int(p[8]),
+            duration: p[8] & 0x80 != 0 ? TimeInterval(p[8] & 0x7F) * 60 : TimeInterval(p[8]) * 3600,
             redeemBy: redeem == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(redeem))))
     }
 
@@ -82,7 +83,7 @@ final class AccessManager {
     var isUnlocked: Bool { Date().timeIntervalSince1970 < state.unlockedUntil }
     var remaining: TimeInterval { max(0, state.unlockedUntil - Date().timeIntervalSince1970) }
 
-    // Validates and redeems a code; on success the app is unlocked for the code's hours.
+    // Validates and redeems a code; on success the app is unlocked for the code's time.
     func redeem(_ raw: String) -> Result<TimeInterval, AccessCode.Failure> {
         switch AccessCode.parse(raw) {
         case .failure(let f): return .failure(f)
@@ -91,8 +92,8 @@ final class AccessManager {
             if let by = code.redeemBy, now > by.timeIntervalSince1970 { return .failure(.expired(by)) }
             if state.usedIDs.contains(code.id) { return .failure(.used) }
             state.usedIDs.append(code.id)
-            // A new code adds its hours on top of any time still left.
-            state.unlockedUntil = max(state.unlockedUntil, now) + TimeInterval(code.hours) * 3600
+            // A new code adds its time on top of any time still left.
+            state.unlockedUntil = max(state.unlockedUntil, now) + code.duration
             state.lastSeen = now
             save()
             return .success(remaining)
@@ -108,7 +109,7 @@ final class AccessManager {
     }
 
     static func describe(_ t: TimeInterval) -> String {
-        let m = Int(t / 60)
+        let m = Int((t / 60).rounded(.up))
         return m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(max(m, 1)) min"
     }
 

@@ -7,11 +7,12 @@ contains the public key, so it can check a code but nobody can make new ones.
   python3 tools/keygen.py init                  # once: create your key pair
   python3 tools/keygen.py generate              # 10 codes, 3 hours each, redeem within 7 days
   python3 tools/keygen.py generate --count 5 --hours 2 --valid-days 30
+  python3 tools/keygen.py demo                  # 10 demo codes, 10 minutes each
   python3 tools/keygen.py check PH1-...         # see what a code contains
 
 Code layout (base32 after "PH1-"):
   8 bytes  random code id (the app refuses an id it has already used)
-  1 byte   unlock hours
+  1 byte   unlock time: 1-127 = hours; 0x80 | n = n minutes (1-127)
   4 bytes  redeem-by time, unix seconds, big-endian (0 = no limit)
   64 bytes Ed25519 signature over b"PH1" + the 13 bytes above
 """
@@ -78,34 +79,46 @@ def cmd_init(args) -> None:
     print(f"Public key written to {SWIFT_KEY_FILE}  (rebuild the app to use it)")
 
 
-def make_code(key: Ed25519PrivateKey, hours: int, redeem_by: int) -> tuple[str, str]:
+def encode_duration(minutes: int) -> int:
+    if minutes % 60 == 0 and 1 <= minutes // 60 <= 127:
+        return minutes // 60
+    if 1 <= minutes <= 127:
+        return 0x80 | minutes
+    sys.exit("Unlock time must be 1-127 minutes or whole hours (1-127)")
+
+
+def describe_duration(b: int) -> str:
+    return f"{b & 0x7F} min" if b & 0x80 else f"{b} h"
+
+
+def make_code(key: Ed25519PrivateKey, minutes: int, redeem_by: int) -> tuple[str, str]:
     code_id = secrets.token_bytes(8)
-    payload = code_id + struct.pack(">BI", hours, redeem_by)
+    payload = code_id + struct.pack(">BI", encode_duration(minutes), redeem_by)
     sig = key.sign(PREFIX.encode() + payload)
     return f"{PREFIX}-{b32(payload + sig)}", code_id.hex()
 
 
 def cmd_generate(args) -> None:
-    if not 1 <= args.hours <= 255:
-        sys.exit("--hours must be between 1 and 255")
+    minutes = args.minutes if args.minutes else args.hours * 60
+    duration = describe_duration(encode_duration(minutes))
     key = load_private_key()
     now = int(time.time())
     redeem_by = now + args.valid_days * 86400 if args.valid_days > 0 else 0
     rows = []
     for _ in range(args.count):
-        code, code_id = make_code(key, args.hours, redeem_by)
+        code, code_id = make_code(key, minutes, redeem_by)
         rows.append((code_id, datetime.fromtimestamp(now).isoformat(timespec="seconds"),
                      datetime.fromtimestamp(redeem_by).isoformat(timespec="seconds") if redeem_by else "never",
-                     args.hours, code))
+                     duration, code))
         print(code)
     new_log = not ISSUED_LOG.exists()
     with ISSUED_LOG.open("a", newline="") as f:
         w = csv.writer(f)
         if new_log:
-            w.writerow(["code_id", "issued", "redeem_by", "hours", "code"])
+            w.writerow(["code_id", "issued", "redeem_by", "duration", "code"])
         w.writerows(rows)
     until = rows[0][2] if redeem_by else "any time"
-    print(f"\n{args.count} codes · {args.hours} h each · redeem by {until} · logged to {ISSUED_LOG}",
+    print(f"\n{args.count} codes · {duration} each · redeem by {until} · logged to {ISSUED_LOG}",
           file=sys.stderr)
 
 
@@ -122,8 +135,8 @@ def cmd_check(args) -> None:
         key.verify(sig, PREFIX.encode() + payload)
     except InvalidSignature:
         sys.exit("Signature INVALID — not made with your key")
-    hours, redeem_by = struct.unpack(">BI", payload[8:])
-    print(f"valid · id {payload[:8].hex()} · {hours} h · redeem by "
+    duration, redeem_by = struct.unpack(">BI", payload[8:])
+    print(f"valid · id {payload[:8].hex()} · {describe_duration(duration)} · redeem by "
           f"{datetime.fromtimestamp(redeem_by) if redeem_by else 'never'}")
 
 
@@ -135,11 +148,16 @@ def main() -> None:
     g = sub.add_parser("generate", help="make new codes")
     g.add_argument("--count", type=int, default=10)
     g.add_argument("--hours", type=int, default=3, help="unlock time per code")
+    g.add_argument("--minutes", type=int, help="unlock time in minutes (1-127); overrides --hours")
     g.add_argument("--valid-days", type=int, default=7, help="days to redeem; 0 = no limit")
+    d = sub.add_parser("demo", help="make demo codes (10 minutes each)")
+    d.add_argument("--count", type=int, default=10)
+    d.add_argument("--minutes", type=int, default=10)
+    d.add_argument("--valid-days", type=int, default=7, help="days to redeem; 0 = no limit")
     c = sub.add_parser("check", help="inspect a code")
     c.add_argument("code")
     args = p.parse_args()
-    {"init": cmd_init, "generate": cmd_generate, "check": cmd_check}[args.cmd](args)
+    {"init": cmd_init, "generate": cmd_generate, "demo": cmd_generate, "check": cmd_check}[args.cmd](args)
 
 
 if __name__ == "__main__":

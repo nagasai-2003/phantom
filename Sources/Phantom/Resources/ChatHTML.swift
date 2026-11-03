@@ -35,6 +35,10 @@ html,body{height:100%;background:transparent;color:var(--text);
 #backend-badge{font-size:9px;letter-spacing:.06em;text-transform:uppercase;
   color:var(--muted);padding:1px 5px;border:1px solid var(--border);border-radius:3px;
   pointer-events:none}
+#profile-badge{display:none;font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--accent);padding:1px 5px;border:1px solid var(--accent);border-radius:3px;
+  cursor:pointer;-webkit-app-region:no-drag}
+#profile-badge.on{display:inline-block}
 #autoscroll-btn{-webkit-appearance:none;appearance:none;background:none;
   border:1px solid var(--border);color:var(--muted);
   font-family:var(--font);font-size:12px;padding:1px 6px;border-radius:3px;
@@ -154,6 +158,7 @@ html,body{height:100%;background:transparent;color:var(--text);
         <div id="model-dropdown"></div>
       </div>
       <span id="backend-badge">ollama</span>
+      <span id="profile-badge" title="Interview profile in use — click to edit">profile</span>
     </div>
     <div style="display:flex;align-items:center;gap:4px;-webkit-app-region:no-drag">
       <button id="autoscroll-btn" title="Auto-scroll">↓</button>
@@ -168,9 +173,9 @@ html,body{height:100%;background:transparent;color:var(--text);
   <div id="bottom">
     <textarea id="inp" placeholder="Message… (Enter to send)" rows="1"></textarea>
     <button id="mic-btn" class="action-btn" title="Record">🎙</button>
-    <button id="listen-btn" class="action-btn" title="Listen to call audio — your mic stays off (⌃2)">🎧</button>
-    <button id="screenshot-btn" class="action-btn" title="Screenshot — attach your screen to the next message (⌃3)"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M1 4V1h4M11 1h4v3M15 10v3h-4M5 13H1v-3"/></svg></button>
-    <button id="btn" class="action-btn" title="Send (Enter, or ⌃4 from any app)">↵</button>
+    <button id="listen-btn" class="action-btn" title="Listen to call audio — your mic stays off (⌥R)">🎧</button>
+    <button id="screenshot-btn" class="action-btn" title="Screenshot — attach your screen to the next message (⌥S)"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="square"><path d="M1 4V1h4M11 1h4v3M15 10v3h-4M5 13H1v-3"/></svg></button>
+    <button id="btn" class="action-btn" title="Send (Enter, or ⌥A from any app)">↵</button>
   </div>
 </div>
 <script>
@@ -181,7 +186,7 @@ let micState = 'idle', streaming = false;
 let autoScroll = true;
 let hasScreenshot = false;
 let messages = [];
-const CTX_WINDOW = 20;
+const CTX_WINDOW = 10;   // earlier messages sent with each question; keeps requests under free-tier token limits
 let lastUserText = '';
 let lastScreenshot = null;
 let _messagesLenBeforeLastUser = 0;
@@ -363,6 +368,17 @@ function onWhisperStatus(hasBin, hasModel) {
   const hint = document.getElementById('hint');
   if (!hasBin) { hint.textContent = '⚠ whisper-cli not found. Install: brew install whisper-cpp'; hint.classList.add('visible'); }
   else if (!hasModel) { hint.textContent = '⚠ Whisper model not found. Download ggml-base.bin to /opt/homebrew/share/whisper-cpp/'; hint.classList.add('visible'); }
+}
+
+// ── Interview profile ────────────────────────────────────────────────────────
+const profileBadge = document.getElementById('profile-badge');
+profileBadge.addEventListener('click', e => {
+  e.stopPropagation();
+  window.webkit.messageHandlers.openProfile.postMessage({});
+});
+function setProfileActive(on, resumeName) {
+  profileBadge.classList.toggle('on', on);
+  profileBadge.title = 'Interview profile in use' + (resumeName ? ' (' + resumeName + ')' : '') + ' — click to edit';
 }
 
 // Short status message from the app (e.g. access time ending).
@@ -614,7 +630,7 @@ function clearScreenshotUI() {
   hasScreenshot = false;
   screenshotBtn.innerHTML = SCREENSHOT_ICON;
   screenshotBtn.classList.remove('captured');
-  screenshotBtn.title = 'Screenshot — attach your screen to the next message (⌃3)';
+  screenshotBtn.title = 'Screenshot — attach your screen to the next message (⌥S)';
   screenshotBtn.disabled = false;
   screenshotIndicator.style.display = 'none';
 }
@@ -684,12 +700,12 @@ function send() {
 const listenBtn = document.getElementById('listen-btn');
 const listenBar = document.getElementById('listen-bar');
 let listening = false, listenHeard = false, listenQueued = false;
-let autoSendPause = 3;   // seconds; 0 = only ⌃4 / Enter sends
+let autoSendPause = 3;   // seconds; 0 = only ⌥A / Enter sends
 
 function listenReadyText() {
   return '🎧 Listening to call audio · your mic is off · ' +
-    (autoSendPause > 0 ? 'sends after a ' + autoSendPause + ' s pause · ⌃4 sends now'
-                       : 'auto-send off · ⌃4 sends');
+    (autoSendPause > 0 ? 'sends after a ' + autoSendPause + ' s pause · ⌥A sends now'
+                       : 'auto-send off · ⌥A sends');
 }
 
 function setAutoSendPause(secs) {
@@ -701,7 +717,7 @@ function setListenUI(on) {
   listening = on;
   listenHeard = false; listenQueued = false;
   listenBtn.classList.toggle('on', on);
-  listenBtn.title = on ? 'Stop listening (⌃2)' : 'Listen to call audio — your mic stays off (⌃2)';
+  listenBtn.title = on ? 'Stop listening (⌥R)' : 'Listen to call audio — your mic stays off (⌥R)';
   listenBar.textContent = listenReadyText();
   listenBar.classList.toggle('visible', on);
 }

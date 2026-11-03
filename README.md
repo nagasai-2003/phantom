@@ -141,6 +141,7 @@ pip install cryptography
 python3 tools/keygen.py init        # once: creates your signing key in ~/.phantom-keys/
 python3 tools/keygen.py generate    # prints 10 codes: 3 hours each, redeem within 7 days
 python3 tools/keygen.py generate --count 5 --hours 2 --valid-days 30
+python3 tools/keygen.py demo        # 10 demo codes, 10 minutes each (--minutes 1-127)
 python3 tools/keygen.py check PH1-…  # see what a code contains
 ```
 
@@ -217,13 +218,25 @@ Press **🎙** or **⌘⌥** → speak → press again → transcribed and sent.
 
 ---
 
+## Interview profile (resume, job description, prompt)
+
+Click **◈ → Interview profile…**, or the **profile** badge in the chat header.
+
+- **Resume:** choose a PDF or Word file (.pdf, .docx, .doc, .rtf, .txt), or paste the text. The extracted text is shown so you can fix it. Scanned PDFs have no text; paste the text instead.
+- **Job description:** paste it.
+- **How Phantom should answer:** the system prompt. **Use recommended** fills in an interview-copilot prompt: a bold one-line answer, then 2–4 bullets, STAR for behavioural questions, code plus complexity for coding, and only facts from your resume.
+- Save with **⌘S**. The profile is sent with every message as the system prompt, is stored only in `~/Library/Application Support/Phantom/profile.json`, and goes only to your AI provider.
+- Up to 6,000 characters of resume and 4,000 of job description are sent. The window shows the token cost per message, because free tiers limit tokens per minute (Groq: 8,000 on gpt-oss-20b).
+
+---
+
 ## Listen mode
 
-Listen mode **starts automatically when the chat opens** (turn this off with ◈ → *Auto-listen when chat opens*). Press **🎧** or **⌃2** to stop or start it. It transcribes what your Mac is playing, such as the other person on a call.
+Listen mode **starts automatically when the chat opens** (turn this off with ◈ → *Auto-listen when chat opens*). Press **🎧** or **⌥R** to stop or start it. It transcribes what your Mac is playing, such as the other person on a call.
 
 - Uses ScreenCaptureKit to capture system audio only. **The microphone is never opened**, so your own voice is not recorded.
 - Speech is transcribed on-device in short chunks and appears in the message box as it is spoken.
-- After a clear pause (3 s of silence by default; change it in â â *Auto-send after pause*: 2 s, 3 s, 5 s or Off) the transcript is sent to the AI automatically. Press **⌃4** (or **Enter** in the chat) to send sooner.
+- After a clear pause (3 s of silence by default; change it in ◈ → *Auto-send after pause*: 2 s, 3 s, 5 s or Off) the transcript is sent to the AI automatically. Press **⌥A** (or **Enter** in the chat) to send sooner.
 - Needs whisper-cpp (see Voice input) and **Screen & System Audio Recording** permission.
 - Recording or transcribing other people may need their consent where you live. Check before you use it on a call.
 
@@ -246,10 +259,11 @@ Works with any vision model: `llava`, `gpt-4o`, `gemma3`, `claude-opus-4-7`…
 | Send message | **Enter** |
 | New line | **Shift+Enter** |
 | Voice input | **⌘⌥** |
-| Show / hide chat (any app, even full screen) | **⌃1** (Control + 1) |
-| Listen on / off | **⌃2** (Control + 2) or 🎧 |
-| Screenshot | **⌃3** (Control + 3), **⌘⇧**, or the screenshot button |
-| Answer now | **⌃4** (Control + 4) |
+| Open chat (any app, even full screen) | **⌃1** (Control + 1) |
+| Close chat | **⌃2** (Control + 2) |
+| Answer now | **⌥A** (Option + A) |
+| Screenshot | **⌥S** (Option + S), **⌘⇧**, or the screenshot button |
+| Record: Listen on / off | **⌥R** (Option + R) or 🎧 |
 | Close | **Cmd+W** |
 
 All shortcuts customizable in Settings.

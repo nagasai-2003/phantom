@@ -18,7 +18,7 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
         view = WKWebView(frame: frame, configuration: config)
         view.setValue(false, forKey: "drawsBackground")
         super.init()
-        for name in ["sendMessage","loadModels","startRecording","stopRecording","stopStream","checkWhisper","closeWindow","captureScreen","clearScreenshot","initModel","openSettings","startListening","stopListening"] {
+        for name in ["sendMessage","loadModels","startRecording","stopRecording","stopStream","checkWhisper","closeWindow","captureScreen","clearScreenshot","initModel","openSettings","startListening","stopListening","openProfile"] {
             cc.add(self, name: name)
         }
         setUpListener()
@@ -49,6 +49,8 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
             }
         case "clearScreenshot":
             storedScreenshot = nil
+        case "openProfile":
+            DispatchQueue.main.async { (NSApp.delegate as? AppDelegate)?.openProfile() }
         case "startListening":
             listener.start()
         case "stopListening":
@@ -58,6 +60,7 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
             pendingJS.forEach { view.evaluateJavaScript($0, completionHandler: nil) }
             pendingJS.removeAll()
             sendAutoSendPause()
+            sendProfileState()
             if UserDefaults.standard.bool(forKey: "autoListen") && !listener.isListening {
                 view.evaluateJavaScript("setListening(true)", completionHandler: nil)
             }
@@ -110,6 +113,13 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
         listener.onPause = { [weak self] in self?.view.evaluateJavaScript("onListenPause()", completionHandler: nil) }
         listener.onBusy  = { [weak self] busy in self?.view.evaluateJavaScript("onListenBusy(\(busy))", completionHandler: nil) }
         listener.onError = { [weak self] msg in self?.callJS("onListenError", msg) }
+    }
+
+    // Shows the "profile" badge in the chat header when a resume or job description is in use.
+    func sendProfileState() {
+        let p = InterviewProfile.current
+        let label = p.resumeName.isEmpty ? (p.resumeText.trimmed.isEmpty ? "" : "pasted resume") : p.resumeName
+        runWhenReady("setProfileActive(\(p.hasContext),\(jsonString([label]))[0])")
     }
 
     func sendAutoSendPause() {
@@ -241,7 +251,8 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
     func streamResponse(messages: [[String: Any]], model: String, image: String? = nil) {
         let cfg = BackendConfig.current
         var msgs = messages
-        if let sp = UserDefaults.standard.string(forKey: "systemPrompt"), !sp.isEmpty {
+        // Interview profile: instructions + resume + job description.
+        if let sp = InterviewProfile.current.systemMessage {
             msgs.insert(["role": "system", "content": sp], at: 0)
         }
         switch cfg.type {

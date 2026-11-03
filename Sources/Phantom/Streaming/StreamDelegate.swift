@@ -1,6 +1,18 @@
 import WebKit
 
 class StreamDelegate: NSObject, URLSessionDataDelegate {
+    // Turns a provider error body into a readable line; rate limits say how long to wait.
+    static func describeError(_ status: String, body: Data) -> String {
+        let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any]
+        let detail = ((json?["error"] as? [String: Any])?["message"] as? String)
+            ?? String(data: body, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if status == "HTTP 429" {
+            let wait = detail.range(of: "try again in [0-9.]+m?s", options: .regularExpression).map { String(detail[$0]) }
+            return "Rate limit reached on your AI provider. " + (wait.map { "Please \($0), then press retry." } ?? "Wait a few seconds, then press retry.")
+        }
+        return detail.isEmpty ? status : "\(status): \(detail.prefix(300))"
+    }
+
     let webView: WKWebView
     let parser:  StreamParser
     var buffer = Data()
@@ -44,15 +56,11 @@ class StreamDelegate: NSObject, URLSessionDataDelegate {
         var msg: String? = nil
         if let e = httpError {
             isError = true
-            let body = String(data: buffer, encoding: .utf8) ?? ""
-            let detail = body.prefix(200).trimmingCharacters(in: .whitespacesAndNewlines)
-            msg = detail.isEmpty ? e : "\(e): \(detail)"
+            msg = Self.describeError(e, body: buffer)
         }
         DispatchQueue.main.async {
             if let m = msg {
-                let esc = m.replacingOccurrences(of: "\\", with: "\\\\")
-                           .replacingOccurrences(of: "'", with: "\\'")
-                self.webView.evaluateJavaScript("appendToken('\(esc)')", completionHandler: nil)
+                self.webView.evaluateJavaScript("appendToken(\(jsonString([m]))[0])", completionHandler: nil)
             }
             self.webView.evaluateJavaScript("endStream(\(isError))", completionHandler: nil)
         }

@@ -8,6 +8,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var accessTimer: Timer?
     var wasUnlocked = AccessManager.shared.isUnlocked
     var warnedEnding = false
+    var profileWindow: ProfileWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: ["autoListen": true, "autoSendPause": 3.0])
@@ -21,7 +22,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         try? FileManager.default.createDirectory(
             atPath: NSHomeDirectory() + "/.ollama-chat",
             withIntermediateDirectories: true)
-        globalHotKey = GlobalHotKey { [weak self] in self?.hotKeyToggleChat() }
+        globalHotKey = GlobalHotKey { [weak self] in self?.hotKeyOpenChat() }
+        globalHotKey?.register(.closeHotKey, id: 5) { [weak self] in self?.hotKeyCloseChat() }
         globalHotKey?.register(.listenHotKey, id: 2) { [weak self] in self?.hotKeyChatAction("hotkeyListen()") }
         globalHotKey?.register(.screenshotHotKey, id: 3) { [weak self] in self?.hotKeyChatAction("hotkeyScreenshot()") }
         globalHotKey?.register(.answerHotKey, id: 4) { [weak self] in self?.hotKeyChatAction("hotkeyAnswer()") }
@@ -41,7 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = "Paste the code you were given. Each code unlocks Phantom for a few hours and works once on this Mac."
+        alert.informativeText = "Paste the code you were given. Each code unlocks Phantom for a set time (demo codes: 10 minutes) and works once on this Mac."
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 64))
         field.placeholderString = "PH1-…"
         field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
@@ -115,12 +117,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         cw.webView.runWhenReady(js)
     }
 
-    func hotKeyToggleChat() {
-        if chatWindow?.window.isVisible == true {
-            chatWindow?.webView.runWhenReady("disarmModifierShortcuts()")
-            chatWindow?.window.orderOut(nil)
-            return
-        }
+    func hotKeyCloseChat() {
+        chatWindow?.webView.runWhenReady("disarmModifierShortcuts()")
+        chatWindow?.window.orderOut(nil)
+    }
+
+    func hotKeyOpenChat() {
         withAccess { [weak self] in
             guard let self = self else { return }
             if self.chatWindow == nil { self.chatWindow = ChatWindow() }
@@ -170,7 +172,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let pauseItem = NSMenuItem(title: "Auto-send after pause", action: nil, keyEquivalent: "")
         let pauseMenu = NSMenu()
         let currentPause = UserDefaults.standard.double(forKey: "autoSendPause")
-        for (title, secs) in [("2 seconds", 2.0), ("3 seconds", 3.0), ("5 seconds", 5.0), ("Off — send with ⌃4", 0.0)] {
+        for (title, secs) in [("2 seconds", 2.0), ("3 seconds", 3.0), ("5 seconds", 5.0), ("Off — send with ⌥A", 0.0)] {
             let item = NSMenuItem(title: title, action: #selector(setAutoSendPause(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = secs
@@ -181,6 +183,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         pauseItem.isEnabled = true
         menu.addItem(pauseItem)
         menu.addItem(.separator())
+        let profileItem = NSMenuItem(title: "Interview profile… (resume, job, prompt)", action: #selector(openProfile), keyEquivalent: "")
+        profileItem.target = self
+        profileItem.isEnabled = true
+        menu.addItem(profileItem)
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(configureBackend), keyEquivalent: "")
         settingsItem.target = self
         settingsItem.isEnabled = true
@@ -209,6 +215,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         UserDefaults.standard.set(secs, forKey: "autoSendPause")
         sender.menu?.items.forEach { $0.state = $0 === sender ? .on : .off }
         chatWindow?.webView.sendAutoSendPause()
+    }
+
+    @objc func openProfile() {
+        if profileWindow == nil {
+            profileWindow = ProfileWindow()
+            profileWindow?.onSave = { [weak self] in self?.chatWindow?.webView.sendProfileState() }
+        }
+        profileWindow?.show()
     }
 
     @objc func toggleChat() {
@@ -493,11 +507,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let toggleRow = NSStackView()
         toggleRow.orientation = .horizontal
         toggleRow.spacing = 8
-        let toggleLabel = NSTextField(labelWithString: "Toggle:")
+        let toggleLabel = NSTextField(labelWithString: "Open chat:")
         toggleLabel.frame.size.width = 70
         let toggleRecorder = ShortcutRecorder(storagePrefix: "toggleShortcut", defaultShortcut: .defaultToggle)
         toggleRecorder.onChange = { [weak self] s in self?.globalHotKey?.register(s) }
-        let toggleHint = NSTextField(labelWithString: "show/hide window  ·  key required  ·  Esc = cancel")
+        let toggleHint = NSTextField(labelWithString: "open chat (⌃2 closes)  ·  key required  ·  Esc = cancel")
         toggleHint.font = NSFont.systemFont(ofSize: 10)
         toggleHint.textColor = .secondaryLabelColor
         toggleRow.addArrangedSubview(toggleLabel)
@@ -520,31 +534,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         captureRow.addArrangedSubview(captureHint)
         objc_setAssociatedObject(stack, "captureRecorder", captureRecorder, .OBJC_ASSOCIATION_RETAIN)
 
-        let sysLabel = NSTextField(labelWithString: "System prompt:")
-        sysLabel.font = NSFont.systemFont(ofSize: 11)
-        let sysTextView = NSTextView()
-        sysTextView.isEditable = true
-        sysTextView.isRichText = false
-        sysTextView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        sysTextView.string = UserDefaults.standard.string(forKey: "systemPrompt") ?? ""
-        sysTextView.textContainerInset = NSSize(width: 4, height: 4)
-        sysTextView.backgroundColor = NSColor(red: 30/255, green: 32/255, blue: 38/255, alpha: 1)
-        let sysScroll = NSScrollView()
-        sysScroll.documentView = sysTextView
-        sysScroll.hasVerticalScroller = true
-        sysScroll.autohidesScrollers = true
-        sysScroll.borderType = .lineBorder
-        sysScroll.layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
-        sysScroll.wantsLayer = true
-        sysScroll.heightAnchor.constraint(equalToConstant: 44).isActive = true
-        sysScroll.widthAnchor.constraint(equalToConstant: (panelW - 2 * pad) * 0.9).isActive = true
-
-        let sysRow = NSStackView()
-        sysRow.orientation = .vertical
-        sysRow.alignment = .leading
-        sysRow.spacing = 3
-        sysRow.addArrangedSubview(sysLabel)
-        sysRow.addArrangedSubview(sysScroll)
+        // The system prompt now lives in the Interview profile window with the resume and job description.
+        let sysRow = NSTextField(labelWithString: "System prompt, resume and job description: ◈ → Interview profile…")
+        sysRow.font = NSFont.systemFont(ofSize: 11)
+        sysRow.textColor = .secondaryLabelColor
 
         let shotDefaultText = "Look at this screenshot. Find any programming problem, error, or bug and explain how to fix it."
         let shotLabel = NSTextField(labelWithString: "Screenshot prompt:")
@@ -558,21 +551,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         shotLabelRow.addArrangedSubview(shotLabel)
         shotLabelRow.addArrangedSubview(shotDefaultBtn)
 
-        let shotTextView = NSTextView()
+        // scrollableTextView sizes the text view to its scroll view; a bare NSTextView() has zero width.
+        let shotScroll = NSTextView.scrollableTextView()
+        let shotTextView = shotScroll.documentView as! NSTextView
         shotTextView.isEditable = true
         shotTextView.isRichText = false
         shotTextView.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
         shotTextView.string = UserDefaults.standard.string(forKey: "screenshotPrompt") ?? ""
         shotTextView.textContainerInset = NSSize(width: 4, height: 4)
         shotTextView.backgroundColor = NSColor(red: 30/255, green: 32/255, blue: 38/255, alpha: 1)
-        let shotScroll = NSScrollView()
-        shotScroll.documentView = shotTextView
         shotScroll.hasVerticalScroller = true
         shotScroll.autohidesScrollers = true
         shotScroll.borderType = .lineBorder
         shotScroll.layer?.borderColor = NSColor.white.withAlphaComponent(0.15).cgColor
         shotScroll.wantsLayer = true
-        shotScroll.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        shotScroll.heightAnchor.constraint(equalToConstant: 60).isActive = true
         shotScroll.widthAnchor.constraint(equalToConstant: (panelW - 2 * pad) * 0.9).isActive = true
 
         class DefaultBtnHandler: NSObject {
@@ -612,7 +605,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let cancelBtn = NSButton(title: "Cancel", target: nil, action: nil)
         saveBtn.bezelStyle   = .rounded
         cancelBtn.bezelStyle = .rounded
+        // ⌘Return, so Return types a new line in the prompt box instead of saving.
         saveBtn.keyEquivalent   = "\r"
+        saveBtn.keyEquivalentModifierMask = .command
         cancelBtn.keyEquivalent = "\u{1b}"
 
         class BtnHandler: NSObject {
@@ -683,8 +678,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             )
             if newCfg.url.isEmpty { newCfg.url = preset.url }
             BackendConfig.current = newCfg
-            let sysPrompt = sysTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            UserDefaults.standard.set(sysPrompt.isEmpty ? nil : sysPrompt, forKey: "systemPrompt")
             let shotPrompt = shotTextView.string.trimmingCharacters(in: .whitespacesAndNewlines)
             UserDefaults.standard.set(shotPrompt.isEmpty ? nil : shotPrompt, forKey: "screenshotPrompt")
             chatWindow?.webView.sendScreenshotPrompt()
