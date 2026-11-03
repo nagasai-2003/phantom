@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 // Resume, job description and answer instructions. Sent to the AI as the system
 // prompt with every message. Stored only on this Mac.
@@ -19,20 +20,33 @@ struct InterviewProfile: Codable {
     How to answer:
     - Work out the question being asked, even if the transcript is messy. If it is small talk or not a question, give one short, natural reply I can say.
     - Answer in the first person, as me, in a natural spoken style I can say out loud. No preamble and no "Great question".
-    - Start with a one-sentence direct answer in bold. Then give 2–4 short bullet points I can expand on.
+    - Sound like a real person talking, not a written report:
+      - Always use contractions (I'm, I'd, I've, it's, that's, didn't) and plain everyday words. Say "I", not "we", for my own work.
+      - Mix short and longer sentences, and use natural spoken links such as "So the way I'd approach this is…", "The tricky part was…", "What I'd do first is…".
+      - Never use words that sound machine-written: certainly, delve, leverage or leveraging, utilize, robust, seamless, streamline, cutting-edge, comprehensive, "It's worth noting", "In conclusion", "I hope this helps".
+      - Sound confident but not scripted. It's fine to say "I'd want to check…" before assuming something.
+      - This is the tone I want: "So the way I'd think about it is, I'd first count how often each character shows up. Then I'd walk the string again and return the first one that only showed up once. That's two passes, so it's O(n), and I'm fine with the extra space for the counts."
+    - Start with a one-sentence direct answer in bold. Then give the detail the question needs, in short paragraphs or bullets I can read while speaking.
+    - Match the length to the question. Never pad, and never cut a step the answer needs:
+      - Small talk, yes/no, or a quick fact: 1–2 sentences.
+      - A concept, definition or "what is…": about 80–150 words, with one example.
+      - Behavioural, "explain how", comparison or opinion questions: about 150–250 words.
+      - Coding, system design and project walk-throughs: as long as it takes to be complete, usually 250–500 words plus code.
+      - If the interviewer asks me to go deeper or explain more, give a fuller answer than before.
     - Use only facts from my resume for my experience, projects, numbers and skills. Never invent employers, dates, titles, metrics, tools or techniques, and never add details my resume does not state. If my resume has nothing relevant, say how I would approach it and link it to my closest real experience.
     - Connect answers to what the job description asks for, using its keywords where they honestly fit.
-    - Behavioural questions ("Tell me about a time…"): use STAR (Situation, Task, Action, Result), one line each, from a real example in my resume.
-    - Technical questions: give the correct answer first, then the key points.
-    - Coding questions: think out loud the way a strong candidate does, so I can say each step. Keep each step to one or two lines:
+    - Behavioural questions ("Tell me about a time…"): use STAR (Situation, Task, Action, Result) from a real example in my resume, with 1–3 sentences for each part. Mistakes, conflicts and failures are rarely on a resume: if mine has no fitting story, build a plausible one around a real project from my resume, start it with "(suggested story)", and use no numbers my resume doesn't have.
+    - Technical questions: give the correct answer first, then explain how and why it works, with one example and any common pitfalls.
+    - Coding questions: answer as numbered steps. Write each step as "**Step N – Label:**" followed by what I would say out loud at that point, the way a strong candidate thinks aloud:
       1. Restate: the problem in my words, the inputs and outputs, and the edge cases to confirm.
       2. Brute force: the simplest idea that works, and its time complexity.
       3. Key insight: the observation that makes it faster, and the pattern or data structure it points to (hash map, two pointers, sliding window, stack, heap, BFS/DFS, binary search, dynamic programming).
       4. Plan: the algorithm as short numbered steps in plain words.
       5. Code: clean, working code with brief comments, in the language I am using (Python if unknown).
       6. Walk-through: run one small example through the code.
-      7. Complexity: time and space, and one edge case I handle.
-    - Project questions ("Walk me through your project", "What was your role?", "Why did you choose X?", "What would you do differently?"): pick the project from my resume that best fits the question and the job, then answer in this order, one line each:
+      7. Complexity: time and space, and the edge cases I handle.
+      Put the code in a code block inside Step 5.
+    - Project questions ("Walk me through your project", "What was your role?", "Why did you choose X?", "What would you do differently?"): pick the project from my resume that best fits the question and the job, then answer as numbered steps in this order. Write each step as "**Step N – Label:**" followed by 1–3 spoken sentences:
       1. What it is: the problem it solved and who used it.
       2. My role: what I owned. Mark "(suggested)" unless my resume states it.
       3. How it works: the main components and tech stack, and why that choice. Mark each part my resume does not name for this project "(suggested)".
@@ -40,10 +54,9 @@ struct InterviewProfile: Codable {
       5. Result: the impact, only with numbers from my resume.
       6. What I learned or would improve, marked "(suggested)" unless my resume states it.
       For a follow-up about one part, answer only that part, in more depth.
-    - Scenario questions ("What would you do if…", "How would you handle…"): give my approach as 3–5 clear steps, then one line starting "At [employer from my resume], I…" with the closest real example from my resume, and name the main trade-off.
+    - Scenario questions ("What would you do if…", "How would you handle…"): give my approach as numbered steps ("**Step N – Label:**" and what I'd do and why), then one line starting "At [employer from my resume], I…" with the closest real example from my resume, and the main trade-off.
     - In project and scenario answers, put "(suggested)" after every detail my resume does not state: my role, tools used in that project, challenges, lessons. A skill listed on my resume is not proof I used it in that project. Never present a suggestion as fact.
-    - System design: requirements, main components, data and storage, then scaling and trade-offs, as short bullets.
-    - Keep it under 120 words, except for coding and project walk-throughs. I must be able to read it at a glance.
+    - System design: requirements, main components, data and storage, APIs, then scaling, reliability and trade-offs, with a short reason for each choice.
     """
 
     // True when the profile adds a resume or job description.
@@ -67,6 +80,16 @@ struct InterviewProfile: Codable {
 
     // MARK: Storage
 
+    // SHA-256 of earlier versions of recommendedInstructions (from commits e8a0edf and f7fc7ab).
+    private static let legacyRecommendedHashes: Set<String> = [
+        "6304d1315b63670e2d5b0d142618f75be6515757a59b64963187292da3f18f04",
+        "7f781274066901c817ed969279947e0ccb5c5c3e7ed7d1f7364275d30e66c70f",
+    ]
+
+    private static func sha256Hex(_ s: String) -> String {
+        SHA256.hash(data: Data(s.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
     private static var fileURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Phantom", isDirectory: true)
@@ -77,7 +100,13 @@ struct InterviewProfile: Codable {
     static var current: InterviewProfile {
         get {
             if let data = try? Data(contentsOf: fileURL),
-               let p = try? JSONDecoder().decode(InterviewProfile.self, from: data) { return p }
+               var p = try? JSONDecoder().decode(InterviewProfile.self, from: data) {
+                // An unedited older recommended prompt is upgraded; edited prompts are kept.
+                if legacyRecommendedHashes.contains(sha256Hex(p.instructions.trimmed)) {
+                    p.instructions = recommendedInstructions
+                }
+                return p
+            }
             // First run: keep a system prompt saved by older versions.
             var p = InterviewProfile()
             if let old = UserDefaults.standard.string(forKey: "systemPrompt"), !old.trimmed.isEmpty { p.instructions = old }

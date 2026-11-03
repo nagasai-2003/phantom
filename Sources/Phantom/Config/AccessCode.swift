@@ -1,6 +1,6 @@
 import Foundation
 import CryptoKit
-import Security
+import IOKit
 
 // A signed access code made by tools/keygen.py. Layout after "PH1-" (base32):
 // 8-byte id · 1-byte unlock time (1-127 = hours, 0x80 | n = n minutes) ·
@@ -59,8 +59,10 @@ struct AccessCode {
     }
 }
 
-// Tracks the 3-hour unlock. State lives in the login Keychain so it survives
-// reinstalls and isn't a plain settings file.
+// Tracks the unlock time. State lives in a hidden file sealed with an HMAC keyed to
+// this Mac, so editing it or copying it to another Mac locks the app. (The login
+// Keychain was used before, but every rebuild changes the ad-hoc signature and
+// macOS then blocks reads and writes behind a password prompt.)
 final class AccessManager {
     static let shared = AccessManager()
 
@@ -70,11 +72,21 @@ final class AccessManager {
         var usedIDs: [String] = []
     }
 
-    private var state: State
-    private let service: String
+    private struct Sealed: Codable {
+        var state: Data
+        var mac: Data
+    }
 
-    init(service: String = "com.local.phantom.access") {
-        self.service = service
+    private var state: State
+    private let fileURL: URL
+    private let sealKey: SymmetricKey
+
+    init(name: String = "access") {
+        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Phantom", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        fileURL = dir.appendingPathComponent(".\(name).dat")
+        sealKey = SymmetricKey(data: SHA256.hash(data: Data("phantom-access-v1|\(Self.machineID())".utf8)))
         state = State()
         state = load() ?? State()
         checkClock()
@@ -113,34 +125,35 @@ final class AccessManager {
         return m >= 60 ? "\(m / 60) h \(m % 60) min" : "\(max(m, 1)) min"
     }
 
-    // MARK: Keychain
+    // MARK: Storage
 
-    private var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword,
-         kSecAttrService as String: service,
-         kSecAttrAccount as String: "state"]
+    private static func machineID() -> String {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        defer { IOObjectRelease(service) }
+        let uuid = IORegistryEntryCreateCFProperty(service, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? String
+        return uuid ?? "unknown-mac"
+    }
+
+    private func mac(_ data: Data) -> Data {
+        Data(HMAC<SHA256>.authenticationCode(for: data, using: sealKey))
     }
 
     private func load() -> State? {
-        var q = query
-        q[kSecReturnData as String] = true
-        q[kSecMatchLimit as String] = kSecMatchLimitOne
-        var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
-              let data = out as? Data else { return nil }
-        return try? JSONDecoder().decode(State.self, from: data)
+        guard let raw = try? Data(contentsOf: fileURL),
+              let sealed = try? JSONDecoder().decode(Sealed.self, from: raw),
+              HMAC<SHA256>.isValidAuthenticationCode(sealed.mac, authenticating: sealed.state, using: sealKey)
+        else { return nil }   // missing, edited, or from another Mac: start locked
+        return try? JSONDecoder().decode(State.self, from: sealed.state)
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(state),
+              let out = try? JSONEncoder().encode(Sealed(state: data, mac: mac(data))) else { return }
+        try? out.write(to: fileURL, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
     // Removes the stored state (used by tests).
-    func reset() { SecItemDelete(query as CFDictionary); state = State() }
-
-    private func save() {
-        guard let data = try? JSONEncoder().encode(state) else { return }
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var add = query
-            add[kSecValueData as String] = data
-            SecItemAdd(add as CFDictionary, nil)
-        }
-    }
+    func reset() { try? FileManager.default.removeItem(at: fileURL); state = State() }
 }

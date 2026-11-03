@@ -9,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var wasUnlocked = AccessManager.shared.isUnlocked
     var warnedEnding = false
     var profileWindow: ProfileWindow?
+    var codePrompt: NSWindow?   // the open access-code prompt, if any
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         UserDefaults.standard.register(defaults: ["autoListen": true, "autoSendPause": 3.0])
@@ -27,44 +28,78 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         globalHotKey?.register(.listenHotKey, id: 2) { [weak self] in self?.hotKeyChatAction("hotkeyListen()") }
         globalHotKey?.register(.screenshotHotKey, id: 3) { [weak self] in self?.hotKeyChatAction("hotkeyScreenshot()") }
         globalHotKey?.register(.answerHotKey, id: 4) { [weak self] in self?.hotKeyChatAction("hotkeyAnswer()") }
-        accessTimer = Timer.scheduledTimer(withTimeInterval: 15, repeats: true) { [weak self] _ in self?.tickAccess() }
+        // .common so it keeps running while Settings or another modal window is open.
+        let timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in self?.tickAccess() }
+        RunLoop.main.add(timer, forMode: .common)
+        accessTimer = timer
+        // Locked: ask for a code straight away; nothing else opens until one is entered.
+        if !AccessManager.shared.isUnlocked {
+            DispatchQueue.main.async { [weak self] in self?.promptForCode() }
+        }
     }
 
     // MARK: Access codes
 
-    // Runs `action` if Phantom is unlocked; otherwise asks for a code first.
+    // Runs `action` if Phantom is unlocked; otherwise only asks for a code. Nothing opens
+    // after unlocking: the user opens the chat themselves.
     func withAccess(_ action: @escaping () -> Void) {
         if AccessManager.shared.isUnlocked { action(); return }
         // Deferred so a menu or hotkey handler finishes before the modal prompt runs.
-        DispatchQueue.main.async { [weak self] in self?.promptForCode(then: action) }
+        DispatchQueue.main.async { [weak self] in self?.promptForCode() }
     }
 
-    func promptForCode(title: String = "Enter your access code", then action: (() -> Void)? = nil) {
+    func promptForCode(title: String = "Enter your access code") {
         NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = "Paste the code you were given. Each code unlocks Phantom for a set time (demo codes: 10 minutes) and works once on this Mac."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 64))
-        field.placeholderString = "PH1-…"
-        field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
-        field.cell?.wraps = true
-        field.cell?.isScrollable = false
-        alert.accessoryView = field
-        alert.addButton(withTitle: "Unlock")
-        alert.addButton(withTitle: "Cancel")
-        alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
-        alert.window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        switch AccessManager.shared.redeem(field.stringValue) {
-        case .success:
-            wasUnlocked = true
-            warnedEnding = false
-            updateAccessItem()
-            action?()
-        case .failure(let failure):
-            promptForCode(title: failure.message, then: action)
+        // Only one prompt at a time: a second request brings the open one forward.
+        if let open = codePrompt {
+            open.makeKeyAndOrderFront(nil)
+            return
         }
+        // Close Settings (or any other modal window) first so two never stack.
+        if NSApp.modalWindow != nil {
+            NSApp.abortModal()
+            DispatchQueue.main.async { [weak self] in self?.promptForCode(title: title) }
+            return
+        }
+        profileWindow?.window.orderOut(nil)
+
+        var heading = title
+        while true {
+            let alert = NSAlert()
+            alert.messageText = heading
+            alert.informativeText = "Paste the code you were given. Each code unlocks Phantom for a set time (demo codes: 10 minutes) and works once on this Mac."
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 64))
+            field.placeholderString = "PH1-…"
+            field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+            field.cell?.wraps = true
+            field.cell?.isScrollable = false
+            alert.accessoryView = field
+            alert.addButton(withTitle: "Unlock")
+            alert.addButton(withTitle: "Cancel")
+            alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
+            alert.window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            alert.window.initialFirstResponder = field
+            codePrompt = alert.window
+            let response = alert.runModal()
+            codePrompt = nil
+            guard response == .alertFirstButtonReturn else { return }
+            switch AccessManager.shared.redeem(field.stringValue) {
+            case .success:
+                wasUnlocked = true
+                warnedEnding = false
+                updateAccessItem()
+                flashUnlocked()
+                return
+            case .failure(let failure):
+                heading = failure.message   // ask again in the same place
+            }
+        }
+    }
+
+    // A quiet confirmation in the menu bar instead of opening a window.
+    func flashUnlocked() {
+        statusItem?.button?.title = "◈ Unlocked · \(AccessManager.describe(AccessManager.shared.remaining))"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in self?.statusItem?.button?.title = "◈" }
     }
 
     @objc func enterAccessCode() {
@@ -96,7 +131,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         chatWindow?.webView.listener.stop()
         chatWindow?.webView.runWhenReady("setListening(false)")
         chatWindow?.window.orderOut(nil)
-        promptForCode(title: "Your access time has ended") { [weak self] in self?.toggleChat() }
+        profileWindow?.window.orderOut(nil)
+        promptForCode(title: "Your access time has ended")
     }
 
     // MARK: Chat
@@ -104,6 +140,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     // Runs a chat action from a global shortcut. Shows the chat without taking
     // focus away from the call app.
     func hotKeyChatAction(_ js: String) {
+        guard NSApp.modalWindow == nil else { return }
         guard AccessManager.shared.isUnlocked else {
             withAccess { [weak self] in self?.hotKeyChatAction(js) }
             return
@@ -123,6 +160,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func hotKeyOpenChat() {
+        guard NSApp.modalWindow == nil else { return }
         withAccess { [weak self] in
             guard let self = self else { return }
             if self.chatWindow == nil { self.chatWindow = ChatWindow() }
@@ -202,6 +240,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         NSApp.activate(ignoringOtherApps: true)
         updateAccessItem()
+        // While locked, only "Enter access code…" and Quit work.
+        let unlocked = AccessManager.shared.isUnlocked
+        for item in menu.items where !item.isSeparatorItem {
+            item.isEnabled = unlocked || item.action == #selector(enterAccessCode) || item.action == #selector(quit)
+        }
     }
 
     @objc func toggleAutoListen(_ sender: NSMenuItem) {
@@ -218,11 +261,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func openProfile() {
-        if profileWindow == nil {
-            profileWindow = ProfileWindow()
-            profileWindow?.onSave = { [weak self] in self?.chatWindow?.webView.sendProfileState() }
+        withAccess { [weak self] in
+            guard let self = self else { return }
+            if self.profileWindow == nil {
+                self.profileWindow = ProfileWindow()
+                self.profileWindow?.onSave = { [weak self] in self?.chatWindow?.webView.sendProfileState() }
+            }
+            self.profileWindow?.show()
         }
-        profileWindow?.show()
     }
 
     @objc func toggleChat() {
@@ -237,7 +283,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Defer so the status menu finishes closing before the modal starts —
         // calling runModal inside a menu action handler corrupts AppKit's
         // menu-tracking state and leaves items grayed afterward.
-        DispatchQueue.main.async { [weak self] in self?.showSettingsPanel() }
+        withAccess { [weak self] in DispatchQueue.main.async { self?.showSettingsPanel() } }
     }
 
     private func showSettingsPanel() {
