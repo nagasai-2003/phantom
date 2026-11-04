@@ -38,3 +38,47 @@ struct BackendConfig {
         return url == d.string(forKey: "backendURL") ? (d.string(forKey: "backendAPIKey") ?? "") : ""
     }
 }
+
+
+// First-run setup: works out the provider from the API key's prefix, so a new user
+// only pastes a key and never picks a provider, URL or model.
+enum ProviderSetup {
+    static let groqURL = "https://api.groq.com/openai/v1"
+    static let groqModel = "openai/gpt-oss-120b"
+
+    // Defaults for a Mac that has never been set up: Groq with its strongest free model.
+    static let registeredDefaults: [String: Any] = [
+        "backendType": BackendType.openai.rawValue,
+        "backendURL": groqURL,
+        "selectedModel": groqModel,
+    ]
+
+    static var needsKey: Bool {
+        let cfg = BackendConfig.current
+        return cfg.type != .ollama && !cfg.url.hasPrefix("http://localhost") && cfg.apiKey.trimmed.isEmpty
+    }
+
+    // Saves the key under the provider it belongs to and picks that provider's model.
+    static func apply(key raw: String) {
+        let key = raw.trimmed
+        guard !key.isEmpty else { return }
+        let match: (BackendType, String, String?)
+        if key.hasPrefix("gsk_") {
+            match = (.openai, groqURL, groqModel)
+        } else if key.hasPrefix("sk-ant-") {
+            match = (.anthropic, "https://api.anthropic.com/v1", "claude-sonnet-5-5")
+        } else if key.hasPrefix("sk-or-") {
+            match = (.openrouter, "https://openrouter.ai/api/v1", nil)
+        } else if key.hasPrefix("nvapi-") {
+            match = (.openai, "https://integrate.api.nvidia.com/v1", nil)
+        } else if key.hasPrefix("sk-") {
+            match = (.openai, "https://api.openai.com/v1", "gpt-5-mini")
+        } else {
+            let cfg = BackendConfig.current   // unknown prefix: keep the current provider
+            match = (cfg.type, cfg.url, nil)
+        }
+        BackendConfig.current = BackendConfig(type: match.0, url: match.1, apiKey: key)
+        if let model = match.2 { UserDefaults.standard.set(model, forKey: "selectedModel") }
+        else { UserDefaults.standard.removeObject(forKey: "selectedModel") }
+    }
+}

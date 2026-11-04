@@ -40,9 +40,20 @@ class SystemAudioListener: NSObject, SCStreamOutput, SCStreamDelegate {
 
     func start() {
         guard !isListening else { return }
-        guard findWhisperBin() != nil, findWhisperModel() != nil else {
-            onError?("Whisper is not installed. Run: brew install whisper-cpp, then download ggml-base.bin (see README).")
-            return
+        // Without Whisper, macOS's built-in speech recognition is used; it needs permission once.
+        if !whisperInstalled {
+            switch AppleSpeech.status {
+            case .authorized: break
+            case .notDetermined:
+                AppleSpeech.requestAccess { [weak self] granted in
+                    if granted { self?.start() }
+                    else { self?.onError?("Phantom needs Speech Recognition to transcribe the call. Turn it on in System Settings > Privacy & Security > Speech Recognition.") }
+                }
+                return
+            default:
+                onError?("Phantom needs Speech Recognition to transcribe the call. Turn it on in System Settings > Privacy & Security > Speech Recognition.")
+                return
+            }
         }
         isListening = true
         SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { [weak self] content, _ in

@@ -137,6 +137,10 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
     }
 
     func requestMicAndRecord() {
+        if !whisperInstalled && AppleSpeech.status == .notDetermined {
+            AppleSpeech.requestAccess { [weak self] _ in self?.requestMicAndRecord() }
+            return
+        }
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized: startRecording()
         case .notDetermined:
@@ -158,8 +162,10 @@ class WKWebViewWrapper: NSObject, WKScriptMessageHandler {
     }
 
     func checkWhisperInstall() {
-        let hasBin   = findWhisperBin() != nil
-        let hasModel = findWhisperModel() != nil
+        // Built-in speech recognition covers a Mac without Whisper, so only warn when neither works.
+        let builtIn  = AppleSpeech.status != .denied && AppleSpeech.status != .restricted
+        let hasBin   = findWhisperBin() != nil || builtIn
+        let hasModel = findWhisperModel() != nil || builtIn
         view.evaluateJavaScript("onWhisperStatus(\(hasBin),\(hasModel))", completionHandler: nil)
     }
 

@@ -99,7 +99,7 @@ Pair with Ollama or LM Studio for fully on-device inference. Nothing leaves your
 | 🫥 **Invisible by default** | Hidden from every screen capture tool on macOS |
 | 🍎 **Menu bar only** | No Dock icon. No trace. Appears as **◈** |
 | 🤖 **Multi-backend** | Ollama, OpenAI, Claude, OpenRouter, NVIDIA NIM, LM Studio, llama.cpp |
-| 🎙 **Voice input** | On-device transcription via whisper-cpp |
+| 🎙 **Voice input** | macOS built-in speech recognition, or whisper-cpp when installed |
 | 🎧 **Listen mode** | Live transcript of call audio (the other person). Your mic stays off. |
 | 📸 **Screenshot analysis** | Capture your screen → attach to message. Model sees it, recorder doesn't. |
 | 🔒 **Zero telemetry** | No analytics, no cloud, no tracking |
@@ -111,9 +111,11 @@ Pair with Ollama or LM Studio for fully on-device inference. Nothing leaves your
 
 **Option A — DMG (fastest)**
 
-Download [`Phantom-v1.1.0.dmg`](https://github.com/nagasai-2003/Phantom/releases), drag to Applications, open.
+Download [`Phantom-v1.3.0.dmg`](https://github.com/nagasai-2003/Phantom/releases), drag to Applications, open. Nothing else to install.
 
-> **Note:** Phantom is not notarized. On first launch, right-click → Open → Open anyway.
+> **Note:** Phantom is not notarized. Before the first launch run `xattr -dr com.apple.quarantine /Applications/Phantom.app`, or use System Settings → Privacy & Security → **Open Anyway**.
+
+On first launch one window asks for the **access code** and the **API key**. The provider is worked out from the key (`gsk_` Groq, `sk-` OpenAI, `sk-ant-` Anthropic, `sk-or-` OpenRouter, `nvapi-` NVIDIA) and the best model is picked for you (Groq: `openai/gpt-oss-120b`). Change either later in ◈ → Settings….
 
 **Option B — Build from source**
 
@@ -201,6 +203,8 @@ Hundreds of models (Llama, Mistral, Gemma, Qwen, DeepSeek) — no credit card re
 
 ## Voice input
 
+Works out of the box with the speech recognition built into macOS (on-device where your language supports it; macOS asks for **Speech Recognition** permission once). For higher accuracy, install whisper-cpp; Phantom uses it whenever it's installed. Transcription is always in English:
+
 ```bash
 brew install whisper-cpp
 curl -L -o /opt/homebrew/share/whisper-cpp/ggml-base.bin \
@@ -237,7 +241,7 @@ Listen mode **starts automatically when the chat opens** (turn this off with ◈
 - Uses ScreenCaptureKit to capture system audio only. **The microphone is never opened**, so your own voice is not recorded.
 - Speech is transcribed on-device in short chunks and appears in the message box as it is spoken.
 - After a clear pause (3 s of silence by default; change it in ◈ → *Auto-send after pause*: 2 s, 3 s, 5 s or Off) the transcript is sent to the AI automatically. Press **⌥A** (or **Enter** in the chat) to send sooner.
-- Needs whisper-cpp (see Voice input) and **Screen & System Audio Recording** permission.
+- Needs **Screen & System Audio Recording** and **Speech Recognition** permission. Uses whisper-cpp instead of the built-in recognizer when it's installed (see Voice input).
 - Recording or transcribing other people may need their consent where you live. Check before you use it on a call.
 
 ---
@@ -275,7 +279,7 @@ All shortcuts customizable in Settings.
 - **No telemetry.** No analytics. No crash reporting to any server.
 - **No cloud.** Network calls go only to your configured backend.
 - **Local backends** (Ollama, llama.cpp, LM Studio) run entirely on your machine — nothing leaves it.
-- **Voice** transcription runs on-device via Whisper.
+- **Voice** transcription runs on-device (Whisper, or macOS speech recognition where your language supports on-device use).
 - **Screenshots** are sent only to your configured backend.
 
 ---

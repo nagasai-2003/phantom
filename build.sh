@@ -4,7 +4,7 @@ set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
-VERSION="1.1.0"
+VERSION="1.3.0"
 APP="Phantom.app"
 DMG="Phantom-v${VERSION}.dmg"
 
@@ -30,12 +30,13 @@ cat > "$APP/Contents/Info.plist" << 'PLIST'
   <key>CFBundleExecutable</key><string>Phantom</string>
   <key>CFBundleIdentifier</key><string>com.local.phantom</string>
   <key>CFBundleName</key><string>Phantom</string>
-  <key>CFBundleVersion</key><string>1.1.0</string>
-  <key>CFBundleShortVersionString</key><string>1.1.0</string>
+  <key>CFBundleVersion</key><string>1.3.0</string>
+  <key>CFBundleShortVersionString</key><string>1.3.0</string>
   <key>CFBundleIconFile</key><string>Phantom</string>
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSMicrophoneUsageDescription</key><string>Phantom needs the microphone to transcribe audio with Whisper.</string>
+  <key>NSMicrophoneUsageDescription</key><string>Phantom uses the microphone only when you press the mic button to dictate.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Phantom turns the call audio into text so it can suggest answers.</string>
   <key>NSScreenCaptureUsageDescription</key><string>Phantom needs screen access to capture context for AI responses.</string>
   <key>NSAppTransportSecurity</key>
   <dict>
@@ -57,14 +58,14 @@ cat > /tmp/entitlements.plist << 'ENT'
 </plist>
 ENT
 
+# Ad-hoc signatures change with every build. Naming the app by its identifier in the
+# designated requirement lets macOS keep Screen Recording, Speech and Microphone
+# permissions across rebuilds and updates instead of asking again.
 codesign --force --deep --sign - \
   --identifier "com.local.phantom" \
+  --requirements '=designated => identifier "com.local.phantom"' \
   --entitlements /tmp/entitlements.plist \
   "$APP"
-
-echo "→ Resetting TCC permissions (signature changed)..."
-tccutil reset ScreenCapture com.local.phantom 2>/dev/null || true
-tccutil reset Microphone    com.local.phantom 2>/dev/null || true
 
 echo "→ Creating DMG..."
 STAGING="$(mktemp -d)/Phantom"

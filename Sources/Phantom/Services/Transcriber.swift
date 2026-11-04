@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import Speech
 
 let WHISPER_BIN = "/usr/local/bin/whisper-cli"
 
@@ -30,14 +31,24 @@ func findWhisperModel() -> String? {
     return nil
 }
 
-// Runs whisper-cli on a WAV file and blocks until it finishes. Deletes the file afterwards.
+var whisperInstalled: Bool { findWhisperBin() != nil && findWhisperModel() != nil }
+
+// Transcribes a WAV file and blocks until it finishes. Deletes the file afterwards.
+// Uses whisper-cli when it is installed, otherwise macOS's built-in speech recognition,
+// so listening works on a fresh Mac with nothing to install.
 func transcribeSync(audioURL: URL) -> String? {
     defer { try? FileManager.default.removeItem(at: audioURL) }
-    guard let bin   = findWhisperBin(),
-          let model = findWhisperModel() else { return nil }
+    if let bin = findWhisperBin(), let model = findWhisperModel() {
+        return whisperSync(audioURL: audioURL, bin: bin, model: model)
+    }
+    return AppleSpeech.transcribeSync(audioURL)
+}
+
+private func whisperSync(audioURL: URL, bin: String, model: String) -> String? {
     let task = Process()
     task.executableURL = URL(fileURLWithPath: bin)
-    task.arguments = ["--model", model, "--language", "auto", "--output-txt", "--no-prints", "--file", audioURL.path]
+    // English only, whatever language the audio sounds like.
+    task.arguments = ["--model", model, "--language", "en", "--output-txt", "--no-prints", "--file", audioURL.path]
     let pipe = Pipe()
     task.standardOutput = pipe; task.standardError = FileHandle.nullDevice
     do { try task.run() } catch { print("[whisper] \(error)"); return nil }
@@ -84,4 +95,52 @@ func transcribeSamples(_ samples: [Float]) -> String? {
         try file.write(from: buf)
     } catch { print("[listen] wav: \(error)"); return nil }
     return transcribeSync(audioURL: url)
+}
+
+// macOS's own speech recognition: on-device where the language supports it.
+enum AppleSpeech {
+    static var status: SFSpeechRecognizerAuthorizationStatus { SFSpeechRecognizer.authorizationStatus() }
+
+    // Asks once for Speech Recognition permission; calls back on the main queue.
+    static func requestAccess(_ done: @escaping (Bool) -> Void) {
+        SFSpeechRecognizer.requestAuthorization { s in
+            DispatchQueue.main.async { done(s == .authorized) }
+        }
+    }
+
+    private static let recognizer: SFSpeechRecognizer? = {
+        // English only: the Mac's own English variant (en-IN, en-GB…) when it has one, else US English.
+        let current = Locale.current.identifier.replacingOccurrences(of: "_", with: "-")
+        let english = current.hasPrefix("en") ? current : "en-US"
+        let r = SFSpeechRecognizer(locale: Locale(identifier: english)) ?? SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 1
+        r?.queue = q   // results arrive here, so a caller can block without stalling the main queue
+        return r
+    }()
+
+    static func transcribeSync(_ url: URL) -> String? {
+        guard status == .authorized, let r = recognizer, r.isAvailable else { return nil }
+        let req = SFSpeechURLRecognitionRequest(url: url)
+        req.shouldReportPartialResults = false
+        req.addsPunctuation = true
+        if r.supportsOnDeviceRecognition { req.requiresOnDeviceRecognition = true }
+        let done = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var text: String?
+        var finished = false
+        let task = r.recognitionTask(with: req) { result, error in
+            lock.lock(); defer { lock.unlock() }
+            guard !finished else { return }
+            if let result = result, result.isFinal {
+                text = result.bestTranscription.formattedString
+                finished = true; done.signal()
+            } else if error != nil {
+                finished = true; done.signal()   // includes "no speech detected"
+            }
+        }
+        if done.wait(timeout: .now() + 30) == .timedOut { task.cancel() }
+        let t = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return t.isEmpty ? nil : t
+    }
 }

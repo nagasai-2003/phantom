@@ -12,7 +12,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var codePrompt: NSWindow?   // the open access-code prompt, if any
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        UserDefaults.standard.register(defaults: ["autoListen": true, "autoSendPause": 3.0])
+        SessionData.wipe()   // a new session starts empty (only the access record is kept)
+        UserDefaults.standard.register(defaults: ProviderSetup.registeredDefaults
+            .merging(["autoListen": true, "autoSendPause": 3.0]) { a, _ in a })
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem?.button {
@@ -20,9 +22,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         buildMenu()
         addEditMenu()
-        try? FileManager.default.createDirectory(
-            atPath: NSHomeDirectory() + "/.ollama-chat",
-            withIntermediateDirectories: true)
         globalHotKey = GlobalHotKey { [weak self] in self?.hotKeyOpenChat() }
         globalHotKey?.register(.closeHotKey, id: 5) { [weak self] in self?.hotKeyCloseChat() }
         globalHotKey?.register(.listenHotKey, id: 2) { [weak self] in self?.hotKeyChatAction("hotkeyListen()") }
@@ -32,8 +31,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let timer = Timer(timeInterval: 15, repeats: true) { [weak self] _ in self?.tickAccess() }
         RunLoop.main.add(timer, forMode: .common)
         accessTimer = timer
-        // Locked: ask for a code straight away; nothing else opens until one is entered.
-        if !AccessManager.shared.isUnlocked {
+        // Ask for the code (when locked) and the API key (erased every session) straight away;
+        // nothing else opens until they're entered.
+        if !AccessManager.shared.isUnlocked || ProviderSetup.needsKey {
             DispatchQueue.main.async { [weak self] in self?.promptForCode() }
         }
     }
@@ -42,13 +42,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // Runs `action` if Phantom is unlocked; otherwise only asks for a code. Nothing opens
     // after unlocking: the user opens the chat themselves.
-    func withAccess(_ action: @escaping () -> Void) {
-        if AccessManager.shared.isUnlocked { action(); return }
+    func withAccess(needsKey: Bool = true, _ action: @escaping () -> Void) {
+        let ready = AccessManager.shared.isUnlocked && !(needsKey && ProviderSetup.needsKey)
+        if ready { action(); return }
         // Deferred so a menu or hotkey handler finishes before the modal prompt runs.
         DispatchQueue.main.async { [weak self] in self?.promptForCode() }
     }
 
-    func promptForCode(title: String = "Enter your access code") {
+    // One window for everything a session needs: the access code (when locked, or to add
+    // time) and the API key (erased every time Phantom quits).
+    func promptForCode(title: String? = nil, askCode forceCode: Bool = false) {
         NSApp.activate(ignoringOtherApps: true)
         // Only one prompt at a time: a second request brings the open one forward.
         if let open = codePrompt {
@@ -58,41 +61,88 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Close Settings (or any other modal window) first so two never stack.
         if NSApp.modalWindow != nil {
             NSApp.abortModal()
-            DispatchQueue.main.async { [weak self] in self?.promptForCode(title: title) }
+            DispatchQueue.main.async { [weak self] in self?.promptForCode(title: title, askCode: forceCode) }
             return
         }
         profileWindow?.window.orderOut(nil)
 
-        var heading = title
+        let askCode = forceCode || !AccessManager.shared.isUnlocked
+        let askKey = ProviderSetup.needsKey
+        guard askCode || askKey else { return }
+        var heading = title ?? (askCode ? "Enter your access code" : "Paste your API key")
+        var typedCode = "", typedKey = ""
         while true {
             let alert = NSAlert()
             alert.messageText = heading
-            alert.informativeText = "Paste the code you were given. Each code unlocks Phantom for a set time (demo codes: 10 minutes) and works once on this Mac."
+            switch (askCode, askKey) {
+            case (true, true):
+                alert.informativeText = "Paste the access code and the API key you were given. Phantom erases the key, your resume and the job description every time it quits."
+            case (true, false):
+                alert.informativeText = "Paste the code you were given. Each code unlocks Phantom for a set time (demo codes: 10 minutes) and works once on this Mac."
+            default:
+                alert.informativeText = "Phantom erases the API key, your resume and the job description every time it quits. Paste the key to start this session."
+            }
             let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 64))
             field.placeholderString = "PH1-…"
             field.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
             field.cell?.wraps = true
             field.cell?.isScrollable = false
-            alert.accessoryView = field
-            alert.addButton(withTitle: "Unlock")
+            field.stringValue = typedCode
+            let keyField = NSTextField(frame: NSRect(x: 0, y: 0, width: 380, height: 24))
+            keyField.placeholderString = "API key (gsk_… or sk-…)"
+            keyField.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+            keyField.stringValue = typedKey
+            if askCode && askKey {
+                let codeLabel = NSTextField(labelWithString: "Access code")
+                let keyLabel = NSTextField(labelWithString: "API key")
+                for l in [codeLabel, keyLabel] { l.font = NSFont.boldSystemFont(ofSize: 11) }
+                let box = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 136))
+                codeLabel.frame = NSRect(x: 0, y: 118, width: 380, height: 16)
+                field.frame = NSRect(x: 0, y: 52, width: 380, height: 64)
+                keyLabel.frame = NSRect(x: 0, y: 30, width: 380, height: 16)
+                keyField.frame = NSRect(x: 0, y: 4, width: 380, height: 24)
+                for v in [codeLabel, field, keyLabel, keyField] { box.addSubview(v) }
+                field.nextKeyView = keyField
+                alert.accessoryView = box
+            } else {
+                alert.accessoryView = askCode ? field : keyField
+            }
+            let go = askCode ? "Unlock" : "Start"
+            alert.addButton(withTitle: go)
+            alert.addButton(withTitle: go + " & add resume…")
             alert.addButton(withTitle: "Cancel")
             alert.window.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 2)
             alert.window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            alert.window.initialFirstResponder = field
+            alert.window.initialFirstResponder = askCode ? field : keyField
             codePrompt = alert.window
             let response = alert.runModal()
             codePrompt = nil
-            guard response == .alertFirstButtonReturn else { return }
-            switch AccessManager.shared.redeem(field.stringValue) {
-            case .success:
+            guard response == .alertFirstButtonReturn || response == .alertSecondButtonReturn else { return }
+            typedCode = field.stringValue
+            typedKey = keyField.stringValue
+            if askKey && typedKey.trimmed.isEmpty {
+                heading = "Paste your API key to continue"
+                continue
+            }
+            if askCode {
+                if case .failure(let failure) = AccessManager.shared.redeem(typedCode) {
+                    heading = failure.message   // ask again in the same place
+                    continue
+                }
                 wasUnlocked = true
                 warnedEnding = false
                 updateAccessItem()
                 flashUnlocked()
-                return
-            case .failure(let failure):
-                heading = failure.message   // ask again in the same place
             }
+            if askKey {
+                ProviderSetup.apply(key: typedKey)
+                chatWindow?.webView.sendSavedModel()
+                chatWindow?.webView.fetchModels()
+            }
+            if response == .alertSecondButtonReturn {
+                DispatchQueue.main.async { [weak self] in self?.openProfile() }
+            }
+            return
         }
     }
 
@@ -103,7 +153,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func enterAccessCode() {
-        DispatchQueue.main.async { [weak self] in self?.promptForCode() }
+        DispatchQueue.main.async { [weak self] in self?.promptForCode(askCode: true) }
     }
 
     func updateAccessItem() {
@@ -132,7 +182,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         chatWindow?.webView.runWhenReady("setListening(false)")
         chatWindow?.window.orderOut(nil)
         profileWindow?.window.orderOut(nil)
-        promptForCode(title: "Your access time has ended")
+        promptForCode(title: "Your access time has ended", askCode: true)
     }
 
     // MARK: Chat
@@ -261,7 +311,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func openProfile() {
-        withAccess { [weak self] in
+        withAccess(needsKey: false) { [weak self] in
             guard let self = self else { return }
             if self.profileWindow == nil {
                 self.profileWindow = ProfileWindow()
@@ -283,7 +333,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Defer so the status menu finishes closing before the modal starts —
         // calling runModal inside a menu action handler corrupts AppKit's
         // menu-tracking state and leaves items grayed afterward.
-        withAccess { [weak self] in DispatchQueue.main.async { self?.showSettingsPanel() } }
+        withAccess(needsKey: false) { [weak self] in DispatchQueue.main.async { self?.showSettingsPanel() } }
     }
 
     private func showSettingsPanel() {
@@ -732,4 +782,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func quit() { NSApp.terminate(nil) }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        SessionData.wipe()
+    }
 }

@@ -1,0 +1,55 @@
+PHANTOM ACCESS CODES - COMMANDS
+================================
+
+Open Terminal and go to the project folder first:
+
+cd ~/DJSAI/CODES/Projects/Phantom
+
+
+1. 10 codes, 3 hours each (normal)
+----------------------------------
+python3 tools/keygen.py generate
+
+
+2. 10 demo codes, 10 minutes each
+---------------------------------
+python3 tools/keygen.py demo
+
+
+3. Custom amounts
+-----------------
+5 codes, 2 hours each:
+python3 tools/keygen.py generate --count 5 --hours 2
+
+10 codes, 30 minutes each:
+python3 tools/keygen.py generate --minutes 30
+
+Codes that never expire if unused:
+python3 tools/keygen.py generate --valid-days 0
+
+20 codes, 5 hours each, 30 days to redeem:
+python3 tools/keygen.py generate --count 20 --hours 5 --valid-days 30
+
+
+4. Check a code (time it unlocks, when it expires)
+--------------------------------------------------
+python3 tools/keygen.py check PH1-XXXX-XXXX-...
+
+
+OPTIONS FOR "generate"
+----------------------
+--count        how many codes            (default 10)
+--hours        unlock time per code      (1 to 127, default 3)
+--minutes      unlock time in minutes    (1 to 127, replaces --hours)
+--valid-days   days to redeem the code   (default 7, 0 = no limit)
+
+
+GOOD TO KNOW
+------------
+- Every batch is saved to ~/.phantom-keys/issued_codes.csv,
+  so you have a record of all codes you gave out.
+- Do NOT run "init" again. Your signing key already exists.
+  "init --force" makes a new key and breaks every code
+  you already gave out until the app is rebuilt.
+- Keep ~/.phantom-keys/private_key.pem secret. Never share it.
+  Anyone with it can make their own codes.
